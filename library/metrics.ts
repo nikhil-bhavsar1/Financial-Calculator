@@ -1,0 +1,38 @@
+import { TermMapping } from '../types/terminology';
+
+import { INCOME_STATEMENT_TERMS } from './terms/incomeStatement';
+import { BALANCE_SHEET_ASSETS_TERMS } from './terms/balanceSheetAssets';
+import { BALANCE_SHEET_LIABILITIES_TERMS } from './terms/balanceSheetLiabilities';
+import { BALANCE_SHEET_EQUITY_TERMS } from './terms/balanceSheetEquity';
+import { CASH_FLOW_STATEMENT_TERMS } from './terms/cashFlowStatement';
+import { FINANCIAL_RATIOS_TERMS, PER_SHARE_DATA_TERMS } from './terms/ratiosAndPerShare';
+import { OTHER_COMPREHENSIVE_INCOME_TERMS, SEGMENT_REPORTING_TERMS, TAX_TERMS } from './terms/ociAndSegments';
+
+export const METRICS: TermMapping[] = [
+  ...INCOME_STATEMENT_TERMS,
+  ...BALANCE_SHEET_ASSETS_TERMS,
+  ...BALANCE_SHEET_LIABILITIES_TERMS,
+  ...BALANCE_SHEET_EQUITY_TERMS,
+  ...CASH_FLOW_STATEMENT_TERMS,
+  ...FINANCIAL_RATIOS_TERMS,
+  ...PER_SHARE_DATA_TERMS,
+  ...OTHER_COMPREHENSIVE_INCOME_TERMS,
+  ...SEGMENT_REPORTING_TERMS,
+  ...TAX_TERMS
+];
+
+// For backward compatibility if needed, or alias
+export const INPUT_METRICS = METRICS;
+
+export {
+  INCOME_STATEMENT_TERMS,
+  BALANCE_SHEET_ASSETS_TERMS,
+  BALANCE_SHEET_LIABILITIES_TERMS,
+  BALANCE_SHEET_EQUITY_TERMS,
+  CASH_FLOW_STATEMENT_TERMS,
+  FINANCIAL_RATIOS_TERMS,
+  PER_SHARE_DATA_TERMS,
+  OTHER_COMPREHENSIVE_INCOME_TERMS,
+  SEGMENT_REPORTING_TERMS,
+  TAX_TERMS
+};

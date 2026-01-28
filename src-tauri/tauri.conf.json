@@ -1,0 +1,38 @@
+{
+    "identifier": "com.financial.calculator",
+    "build": {
+        "beforeDevCommand": "",
+        "beforeBuildCommand": "npm run build",
+        "devUrl": "http://localhost:1420",
+        "frontendDist": "../dist"
+    },
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "Financial Calculator",
+                "width": 1200,
+                "height": 800,
+                "devtools": true,
+                "url": "http://localhost:1420"
+            }
+        ],
+        "security": {
+            "csp": null,
+            "dangerousDisableAssetCspModification": true
+        },
+        "withGlobalTauri": true
+    },
+    "bundle": {
+        "active": true,
+        "targets": "all",
+        "externalBin": [
+            "binaries/api-server"
+        ]
+    },
+    "plugins": {
+        "shell": {
+            "open": true
+        }
+    }
+}

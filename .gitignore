@@ -1,0 +1,82 @@
+
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+thumbs.db
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+# Keep Cargo.lock if you want reproducible builds, but often excluded in mixed repos if not strictly managed. 
+# Standard Tauri recommendation is to KEEP Cargo.lock, but user asked to ignore modules/dependencies. 
+# I will NOT ignore Cargo.lock by default as it's bad practice for Rust, but I will ignore target.
+
+# Project Specific
+binaries/
+python-api.log
+vite.log
+tauri-output.log
+dev_server_restart.log
+local_db/
+uploads/
+/brain/

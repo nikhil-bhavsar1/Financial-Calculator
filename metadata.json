@@ -1,0 +1,5 @@
+{
+  "name": "DataExtract - Financial Analysis",
+  "description": "A sophisticated financial document extraction and analysis tool featuring an interactive data table, validation sidebar, and AI-powered insights using Google Gemini.",
+  "requestFramePermissions": []
+}
