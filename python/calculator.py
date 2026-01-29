@@ -64,12 +64,7 @@ DEFAULT_MAPPING: Dict[str, List[str]] = {
 
 # Try to load unified terminology map
 try:
-    # Add root directory to path to find terminology_keywords.py
-    # This assumes calculator.py is in python/ subdirectory and terminology_keywords.py is in root
-    root_path = str(Path(__file__).parent.parent)
-    if root_path not in sys.path:
-        sys.path.append(root_path)
-
+    # terminology_keywords is now in the same directory
     from terminology_keywords import TERMINOLOGY_MAP
     
     # Overwrite/Extend DEFAULT_MAPPING with unified terms

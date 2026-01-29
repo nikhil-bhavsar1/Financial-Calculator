@@ -1,240 +1,236 @@
 #!/bin/bash
 
-echo "=== Financial Calculator - Full Stack Launcher ==="
+# =============================================================================
+# FINANCIAL CALCULATOR - FULL STACK LAUNCHER
+# =============================================================================
+# This script sets up the environment (Python venv, Node dependencies)
+# and launches the backend API and frontend Desktop App.
+
+set -u # Error on undefined variables
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== Financial Calculator - Full Stack Launcher ===${NC}"
 echo ""
 
-# Cleanup function for graceful shutdown
+# =============================================================================
+# 0. CLEANUP & TRAP
+# =============================================================================
+
 cleanup() {
     echo ""
-    echo "Shutting down Financial Calculator..."
+    echo -e "${BLUE}Shutting down Financial Calculator...${NC}"
     
+    # Securely Wipe API Keys from settings.json
+    echo -e "   🧹 Securely wiping API keys from storage..."
+    python3 -c "
+import json
+import os
+from pathlib import Path
+
+# Identify config directory (Linux/standard XDG)
+# Note: Adjust if running on Mac or Windows if needed, but this script is bash/Linux focused
+config_dir = Path.home() / '.local/share/com.financial.calculator'
+settings_file = config_dir / 'settings.json'
+
+if settings_file.exists():
+    try:
+        with open(settings_file, 'r') as f:
+            data = json.load(f)
+        
+        # Wipe sensitive fields
+        if 'apiKeys' in data:
+            data['apiKeys'] = {k: '' for k in data['apiKeys']}
+        if 'supabaseConfig' in data:
+             data['supabaseConfig'] = {'url': '', 'key': ''}
+             
+        with open(settings_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        print('      ✓ API keys & secrets wiped from disk')
+    except Exception as e:
+        print(f'      ⚠️  Failed to wipe settings: {e}')
+"
+
     # Kill Python API
-    if [ ! -z "$PYTHON_PID" ]; then
+    if [ ! -z "${PYTHON_PID:-}" ]; then
         kill $PYTHON_PID 2>/dev/null
-        echo "   ✓ Python API stopped"
+        echo -e "   ${GREEN}✓ Python API stopped${NC}"
     fi
     
     # Kill any binary instance
     pkill -x "financial-calculator" 2>/dev/null
     
-    # Kill Vite if it was started (some versions of npm run tauri dev daemonize it)
-    lsof -t -i:1420 | xargs kill -9 2>/dev/null
-    
-    echo "   ✓ Services stopped. Have a nice day!"
+    # Kill Vite/Tauri processes
+    # Find process listening on 1420
+    VITE_PID=$(lsof -t -i:1420 2>/dev/null)
+    if [ ! -z "$VITE_PID" ]; then
+        kill -9 $VITE_PID 2>/dev/null
+        echo -e "   ${GREEN}✓ Frontend services stopped${NC}"
+    fi
+
+    echo -e "   ${GREEN}✓ Cleanup complete. Have a nice day!${NC}"
     exit 0
 }
+
 trap cleanup SIGINT SIGTERM
 
-
 # =============================================================================
-# Dependency Checks
+# 1. PYTHON ENVIRONMENT SETUP
 # =============================================================================
 
-check_dependencies() {
-    echo "1. Checking System Dependencies..."
-    MISSING_DEPS=0
-    
-    # Check Python 3
-    if command -v python3 &> /dev/null; then
-        echo "   ✅ Found Python 3 ($(python3 --version))"
-    else
-        echo "   ❌ Python 3 is missing."
-        MISSING_DEPS=1
-    fi
-    
-    # Check Node.js
-    if command -v node &> /dev/null; then
-        echo "   ✅ Found Node.js ($(node --version))"
-    else
-        echo "   ❌ Node.js is missing."
-        MISSING_DEPS=1
-    fi
-    
-    # Check Tesseract OCR
-    if command -v tesseract &> /dev/null; then
-        echo "   ✅ Found Tesseract OCR ($(tesseract --version | head -n1))"
-        TESSERACT_AVAILABLE=1
-    else
-        echo "   ⚠️  Tesseract OCR is missing (Optional for scanned PDFs)."
-        echo "      To install:"
-        echo "      - Fedora: sudo dnf install tesseract tesseract-langpack-eng"
-        echo "      - Ubuntu/Debian: sudo apt install tesseract-ocr"
-        echo "      - macOS: brew install tesseract"
-        TESSERACT_AVAILABLE=0
-    fi
-    
-    if [ $MISSING_DEPS -eq 1 ]; then
-        echo ""
-        echo "❌ Critical dependencies are missing. Please install them and try again."
+echo -e "${BLUE}1. Setting up Python Environment...${NC}"
+
+# Check for Python 3
+if ! command -v python3 &> /dev/null; then
+    echo -e "   ${RED}❌ Python 3 is missing. Please install it.${NC}"
+    exit 1
+fi
+
+# Setup Virtual Environment
+if [ ! -d ".venv" ]; then
+    echo -e "   ${YELLOW}📦 Creating virtual environment (.venv)...${NC}"
+    python3 -m venv .venv
+    if [ $? -ne 0 ]; then
+        echo -e "   ${RED}❌ Failed to create virtual environment.${NC}"
         exit 1
     fi
-    
-    echo ""
-    echo "2. Checking Node.js Dependencies..."
-    if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules)" ]; then
-        echo "   📦 node_modules missing or empty. Running 'npm install'..."
-        npm install
-    else
-        echo "   ✅ node_modules found."
-    fi
+fi
 
-    echo ""
-    echo "3. Checking Python Libraries..."
-    PIP_CMD="pip3"
-    
-    # Core required libraries
+# Activate Virtual Environment
+source .venv/bin/activate
+echo -e "   ${GREEN}✅ Virtual environment activated ($(which python))${NC}"
+
+# Install Python Dependencies
+echo -e "   ${YELLOW}📦 Checking/Installing Python libraries...${NC}"
+pip install --upgrade pip --quiet
+# Install requirements if requirements.txt exists, otherwise install manually
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt --quiet
+else
+    # Core libs
     REQUIRED_LIBS="flask flask-cors pytesseract pandas openpyxl pillow opencv-python-headless pymupdf"
+    pip install $REQUIRED_LIBS --quiet
     
-    for lib in $REQUIRED_LIBS; do
-        if $PIP_CMD show $lib &> /dev/null; then
-            echo "   ✅ Found $lib"
-        else
-            echo "   📦 Installing missing library: $lib..."
-            $PIP_CMD install $lib --quiet
-        fi
-    done
-    
-    # Check for EasyOCR (optional but recommended)
-    echo ""
-    echo "3. Checking OCR Engines..."
-    
-    EASYOCR_AVAILABLE=0
-    if $PIP_CMD show easyocr &> /dev/null; then
-        echo "   ✅ Found EasyOCR"
-        EASYOCR_AVAILABLE=1
-    else
-        echo "   ⚠️  EasyOCR is not installed."
-        echo ""
-        echo "   EasyOCR provides better OCR accuracy for scanned documents,"
-        echo "   especially for Indian financial statements with Hindi text."
-        echo "   It requires PyTorch (~2GB download)."
-        echo ""
-        
-        if [ "$TESSERACT_AVAILABLE" -eq 0 ]; then
-            echo "   ⚠️  Neither Tesseract nor EasyOCR is available."
-            echo "      OCR for scanned PDFs will NOT work without at least one."
-        fi
-        
-        read -p "   Install EasyOCR and its dependencies? (y/N): " -n 1 -r
-        echo ""
-        
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo "   📦 Installing EasyOCR (this may take a few minutes)..."
-            $PIP_CMD install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet
-            $PIP_CMD install easyocr --quiet
-            
-            if $PIP_CMD show easyocr &> /dev/null; then
-                echo "   ✅ EasyOCR installed successfully"
-                EASYOCR_AVAILABLE=1
-            else
-                echo "   ❌ EasyOCR installation failed. Continuing without it."
-            fi
-        else
-            echo "   ℹ️  Skipping EasyOCR installation. OCR may be limited to Tesseract."
-        fi
+    # Check for RAG engine dependencies
+    if [ -f "rag_engine.py" ]; then
+        # Assuming rag_engine might need numpy or others
+        pip install numpy --quiet
     fi
-    
-    # Summary
-    echo ""
-    echo "   OCR Status:"
-    if [ "$TESSERACT_AVAILABLE" -eq 1 ] && [ "$EASYOCR_AVAILABLE" -eq 1 ]; then
-        echo "   ✅ Both Tesseract and EasyOCR available (Best coverage)"
-    elif [ "$TESSERACT_AVAILABLE" -eq 1 ]; then
-        echo "   ✅ Tesseract available (Basic OCR)"
-    elif [ "$EASYOCR_AVAILABLE" -eq 1 ]; then
-        echo "   ✅ EasyOCR available (Deep Learning OCR)"
-    else
-        echo "   ⚠️  No OCR engine available - scanned PDFs will not be readable"
-    fi
-}
-
-check_dependencies
-
-# =============================================================================
-# Process Cleanup (Prevent Multiple Instances)
-# =============================================================================
-
-echo "2. Cleaning up existing instances..."
-
-# Kill any existing financial-calculator binaries
-if pgrep -x "financial-calculator" > /dev/null; then
-    echo "   🔄 Stopping existing Desktop App..."
-    pkill -x "financial-calculator" 2>/dev/null
-    sleep 1
 fi
+echo -e "   ${GREEN}✅ Python dependencies installed${NC}"
 
-# Kill any existing Vite servers on our dev port
-if lsof -Pi :1420 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "   🔄 Stopping existing Vite server..."
-    kill $(lsof -t -i:1420) 2>/dev/null
-    sleep 1
-fi
-
-# Kill existing Python process on port 8765
-if lsof -Pi :8765 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "   🔄 Stopping existing Python API..."
-    kill $(lsof -t -i:8765) 2>/dev/null
-    sleep 1
-fi
 
 # =============================================================================
-# Main Execution
+# 2. NODE.JS ENVIRONMENT SETUP
 # =============================================================================
 
-# Step 1: Start Python Backend API
 echo ""
-echo "3. Starting Python Backend API..."
-# Kill existing process on port 8765 to ensure latest code is running
-if lsof -Pi :8765 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "   🔄 Stopping existing Python API..."
-    kill $(lsof -t -i:8765) 2>/dev/null
-    sleep 1
+echo -e "${BLUE}2. Setting up Node.js Environment...${NC}"
+
+if ! command -v npm &> /dev/null; then
+    echo -e "   ${RED}❌ npm is missing. Please install Node.js.${NC}"
+    exit 1
 fi
 
-python3 python/api.py --server 8765 2>&1 | tee python-api.log &
+if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules)" ]; then
+    echo -e "   ${YELLOW}📦 Installing Node.js dependencies...${NC}"
+    npm install
+    if [ $? -ne 0 ]; then
+        echo -e "   ${RED}❌ npm install failed.${NC}"
+        exit 1
+    fi
+else
+    echo -e "   ${GREEN}✅ node_modules found${NC}"
+fi
+
+# =============================================================================
+# 3. EXTERNAL SERVICES CHECK (OCR & OLLAMA)
+# =============================================================================
+
+echo ""
+echo -e "${BLUE}3. Checking External Services...${NC}"
+
+# OCR
+if command -v tesseract &> /dev/null; then
+    echo -e "   ${GREEN}✅ Tesseract OCR found${NC}"
+else
+    echo -e "   ${YELLOW}⚠️  Tesseract OCR missing (Scanned PDFs will be unreadable)${NC}"
+    echo "      Install via: sudo apt install tesseract-ocr (Linux) or brew install tesseract (Mac)"
+fi
+
+# EasyOCR check (Python)
+if python -c "import easyocr" &> /dev/null; then
+    echo -e "   ${GREEN}✅ EasyOCR found (Python)${NC}"
+else
+    echo -e "   ${YELLOW}ℹ️  EasyOCR not installed (Optional - Better accuracy)${NC}"
+fi
+
+# Ollama
+if command -v ollama &> /dev/null; then
+    echo -e "   ${GREEN}✅ Ollama found${NC}"
+    # Check if running
+    if curl -s http://localhost:11434/api/tags > /dev/null; then
+        echo -e "   ${GREEN}✅ Ollama service is running${NC}"
+    else
+        echo -e "   ${YELLOW}⚠️  Ollama is installed but NOT running.${NC}"
+        echo "      Please run 'ollama serve' in a separate terminal for AI features."
+    fi
+else
+    echo -e "   ${YELLOW}⚠️  Ollama not found (AI Chat/RAG features will be disabled)${NC}"
+    echo "      Install from https://ollama.com"
+fi
+
+# =============================================================================
+# 4. STARTING SERVICES
+# =============================================================================
+
+echo ""
+echo -e "${BLUE}4. Launching Application...${NC}"
+
+# Kill existing ports
+fuser -k 8765/tcp 2>/dev/null
+fuser -k 1420/tcp 2>/dev/null
+
+# Start Python API
+echo -e "   🐍 Starting Python Backend (Port 8765)..."
+python python/api.py --server 8765 > python-api.log 2>&1 &
 PYTHON_PID=$!
 sleep 2
 
-if lsof -Pi :8765 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "   ✅ Python API started on port 8765 (PID: $PYTHON_PID)"
+# Check if Python API started
+if ps -p $PYTHON_PID > /dev/null; then
+    echo -e "   ${GREEN}✅ Python API running (PID: $PYTHON_PID)${NC}"
 else
-    echo "   ⚠️  Python API may have failed to start. Check python-api.log"
-    # Tail the log to show error
-    tail -n 10 python-api.log
+    echo -e "   ${RED}❌ Python API failed to start. Log output:${NC}"
+    cat python-api.log
+    exit 1
 fi
 
-# Step 2: Configure Graphics & Launch Desktop App
-echo ""
-echo "4. Launching Financial Calculator Desktop App..."
-
-# Graphics backend configuration for Linux (Wayland focus)
-export GDK_BACKEND=wayland
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-export QT_QPA_PLATFORM=wayland
-export MOZ_ENABLE_WAYLAND=1
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
-
-# Fallback to X11 if Wayland is not available
-if [ -z "$WAYLAND_DISPLAY" ] && [ -n "$DISPLAY" ]; then
-    echo "   ⚠️  Wayland not detected, using X11"
-    export GDK_BACKEND=x11
-else
-    echo "   ✓ Using Wayland graphics backend"
+# Configure Wayland for Linux
+if [ "${XDG_SESSION_TYPE:-}" == "wayland" ]; then
+    export GDK_BACKEND=wayland
+    export WEBKIT_DISABLE_COMPOSITING_MODE=1
 fi
 
 echo ""
-echo "=========================================="
-echo "✅ Starting Full Stack Services..."
-echo "   🐍 Python API: http://localhost:8765"
-echo "   🖥️  Desktop App launching..."
-echo "=========================================="
+echo -e "${GREEN}==========================================${NC}"
+echo -e "${GREEN}   🚀 Financial Calculator Started        ${NC}"
+echo -e "${GREEN}==========================================${NC}"
+echo "   Backend: http://localhost:8765"
+echo "   Frontend: http://localhost:1420 (starts with app)"
 echo ""
-echo "Press Ctrl+C to stop all services"
+echo -e "   ${YELLOW}ℹ️  Note: API Keys are saved for this session only."
+echo -e "       They will be securely wiped from disk when you stop this script (Ctrl+C).${NC}"
 echo ""
 
-# Start Tauri in foreground (this will also start Vite via devUrl if configured in tauri.conf)
+# Start Tauri
+# Note: tauri.conf.json beforeDevCommand now runs 'npm run dev'
 npm run tauri dev
 
-# Keep script running is handled by foreground process
+# Wait for cleanup
 wait

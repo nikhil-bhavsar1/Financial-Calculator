@@ -22,7 +22,8 @@ interface DocumentViewerProps {
     title?: string;
     editable?: boolean;
     showToolbar?: boolean;
-    pdfUrl?: string; // URL or path to raw PDF file
+    fileUrl?: string;
+    fileType?: 'pdf' | 'image' | 'text';
 }
 
 import { Document, Page as PdfPage, pdfjs } from 'react-pdf';
@@ -30,7 +31,11 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
 // Set worker source
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Set worker source
+// Use Vite's explicit URL import for the worker to ensure it bundles correctly for Tauri/Offline use
+// @ts-ignore
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 interface Page {
     number: number;
@@ -49,7 +54,7 @@ interface ParsedTable {
     alignments: ('left' | 'center' | 'right')[];
 }
 
-type ViewMode = 'preview' | 'edit' | 'split';
+type ViewMode = 'preview' | 'edit' | 'split' | 'file';
 
 // ============================================================================
 // MARKDOWN PARSER
@@ -958,7 +963,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     title = 'Document',
     editable = true,
     showToolbar = true,
-    pdfUrl
+    fileUrl,
+    fileType = 'text'
 }) => {
     // ... state
     const [pages, setPages] = useState<Page[]>([]);
@@ -1279,7 +1285,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     // View mode icons - only Preview and Split now
     const viewModeConfig = {
         preview: { icon: Eye, label: 'Preview' },
-        split: { icon: Columns, label: 'Edit' }
+        split: { icon: Columns, label: 'Edit' },
+        pdf: { icon: FileText, label: 'PDF' }
     };
 
     return (
@@ -1343,7 +1350,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                             </>
                         )}
 
-                        {/* View Mode Toggle - Preview and Split only */}
+                        {/* View Mode Toggle */}
                         {editable && (
                             <div className="flex items-center bg-[var(--bg-surface)] rounded-lg border border-[var(--border-default)] p-0.5">
                                 {(['preview', 'split'] as ViewMode[]).map((mode) => {
@@ -1365,6 +1372,24 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                                         </button>
                                     );
                                 })}
+
+                                {/* PDF Mode with Spacer */}
+                                {fileUrl && (
+                                    <>
+                                        <div className="w-px h-4 bg-[var(--border-default)] mx-1" />
+                                        <button
+                                            onClick={() => startTransition(() => setViewMode('pdf'))}
+                                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${viewMode === 'pdf'
+                                                ? 'bg-[var(--accent-primary)] text-white shadow-sm'
+                                                : 'text-tertiary hover:text-primary hover:bg-[var(--bg-hover)]'
+                                                }`}
+                                            title="View Original PDF"
+                                        >
+                                            <FileText className="w-3.5 h-3.5" />
+                                            <span className="hidden sm:inline">PDF</span>
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1531,37 +1556,24 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 {/* Content Area - Always render both panels, use CSS for visibility */}
                 <div ref={contentRef} className="flex-1 flex overflow-hidden bg-[var(--bg-subtle)]">
 
-                    {/* PDF Split View Mode */}
-                    {viewMode === 'split' && pdfUrl ? (
-                        <>
-                            {/* Left: Text/Markdown Preview */}
-                            <div className="w-1/2 border-r border-[var(--border-default)] overflow-hidden flex flex-col">
-                                <div className="flex-1 overflow-y-auto custom-scrollbar p-8 bg-[var(--bg-surface)]">
-                                    <MarkdownRenderer
-                                        content={currentPageContent}
-                                        searchQuery={searchQuery}
-                                        onCopyCode={handleCopyCode}
-                                    />
-                                </div>
-                            </div>
-                            {/* Right: PDF Viewer */}
-                            <div className="w-1/2 bg-gray-100 dark:bg-slate-900 overflow-y-auto flex justify-center p-4 relative">
-                                <Document
-                                    file={pdfUrl}
-                                    onLoadSuccess={onPdfLoadSuccess}
-                                    loading={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
-                                    className="shadow-xl"
-                                >
-                                    <PdfPage
-                                        pageNumber={currentPage}
-                                        scale={zoomLevel / 100}
-                                        renderTextLayer={false}
-                                        renderAnnotationLayer={false}
-                                        className="shadow-lg mb-4"
-                                    />
-                                </Document>
-                            </div>
-                        </>
+                    {/* PDF Full View Mode */}
+                    {viewMode === 'pdf' && fileUrl ? (
+                        <div className="flex-1 bg-gray-100 dark:bg-slate-900 overflow-y-auto flex justify-center p-4 relative">
+                            <Document
+                                file={fileUrl}
+                                onLoadSuccess={onPdfLoadSuccess}
+                                loading={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
+                                className="shadow-xl"
+                            >
+                                <PdfPage
+                                    pageNumber={currentPage}
+                                    scale={zoomLevel / 100}
+                                    renderTextLayer={false}
+                                    renderAnnotationLayer={false}
+                                    className="shadow-lg mb-4"
+                                />
+                            </Document>
+                        </div>
                     ) : (
 
                         /* Standard Editor Split View (Original Logic) */

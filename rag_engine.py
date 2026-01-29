@@ -1,11 +1,15 @@
 import json
 import re
 import math
-from collections import Counter
+import requests
+import textwrap
+from collections import Counter, defaultdict
+from typing import Dict, List, Optional, Tuple, Any, Generator
+from dataclasses import dataclass, field
 
 # Import unified terminology map
 try:
-    from terminology_keywords import (
+    from python.terminology_keywords import (
         TERMINOLOGY_MAP, KEYWORD_BOOST, KEYWORD_TO_TERM,
         get_metric_ids_for_term, get_term_for_keyword, get_boost_for_keyword,
         get_all_keywords, get_standards_for_term
@@ -15,9 +19,375 @@ except ImportError:
     USE_TERMINOLOGY_MAP = False
 
 
+@dataclass
+class ExplanationContext:
+    """Structured context for LLM explanations"""
+    query: str
+    primary_chunks: List[Dict]
+    supporting_chunks: List[Dict]
+    indas_standards: List[Dict]
+    entity_type: str  # standalone/consolidated
+    statement_type: Optional[str]
+    page_range: Tuple[int, int]
+    related_notes: List[Dict]
+    financial_summary: Dict
+    iteration: int = 0
+    confidence: float = 0.0
+
+
+@dataclass
+class LLMResponse:
+    """Structured LLM response with metadata"""
+    explanation: str
+    citations: List[Dict]
+    suggested_followups: List[str]
+    confidence: float
+    model_used: str
+    tokens_used: int
+
+
+class FinancialExplainer:
+    """
+    Handles LLM interactions for financial document explanation.
+    Integrates with local Ollama instance.
+    """
+    
+    def __init__(self, ollama_url: str = "http://localhost:11434"):
+        self.ollama_url = ollama_url
+        self.model = "llama3.2"  # Default model
+        self.context_window = 8192  # Conservative for most local models
+        self.max_retries = 3
+        
+    def set_model(self, model_name: str, context_window: int = 8192):
+        """Configure which local model to use"""
+        self.model = model_name
+        self.context_window = context_window
+    
+    def explain(
+        self, 
+        context: ExplanationContext,
+        explanation_type: str = "general",
+        stream: bool = False
+    ) -> LLMResponse:
+        """
+        Generate explanation based on retrieved context.
+        
+        Args:
+            context: Structured context from RAG
+            explanation_type: Type of explanation (indas, line_item, note, trend, ratio)
+            stream: Whether to stream the response
+        """
+        # Build optimized prompt
+        prompt = self._build_explanation_prompt(context, explanation_type)
+        
+        # Check if we need to iterate for better context
+        if context.confidence < 0.7 and context.iteration < 2:
+            return self._iterate_explanation(context, explanation_type)
+        
+        # Call local LLM
+        response = self._call_ollama(prompt, stream)
+        
+        # Parse and structure response
+        return self._structure_response(response, context)
+    
+    def _build_explanation_prompt(
+        self, 
+        context: ExplanationContext, 
+        exp_type: str
+    ) -> str:
+        """Construct context-aware prompt for the LLM"""
+        
+        # Calculate available tokens for context (rough estimate)
+        reserved_tokens = 1000  # For instructions, query, formatting
+        available_tokens = self.context_window - reserved_tokens
+        char_per_token = 4  # Conservative estimate
+        max_chars = available_tokens * char_per_token
+        
+        # Build context string
+        context_parts = []
+        
+        # 1. Document metadata
+        meta_text = f"""Document Type: {context.entity_type.title()} Financial Statements
+Statement Type: {context.statement_type or 'General'}
+Pages: {context.page_range[0]} - {context.page_range[1]}
+Query: {context.query}
+"""
+        context_parts.append(meta_text)
+        
+        # 2. Relevant IndAS Standards
+        if context.indas_standards:
+            standards_text = "Applicable Accounting Standards (Ind AS):\n"
+            for std in context.indas_standards[:5]:  # Top 5 relevant
+                standards_text += f"- Ind AS {std['number']}: {std['name']}\n"
+            context_parts.append(standards_text)
+        
+        # 3. Primary Evidence (most relevant chunks)
+        evidence_text = "Primary Evidence from Document:\n"
+        for i, chunk in enumerate(context.primary_chunks[:5], 1):
+            evidence_text += f"\n[Excerpt {i} - Page {chunk['page']}"
+            if chunk.get('section_header'):
+                evidence_text += f", {chunk['section_header']}"
+            evidence_text += f"]:\n{chunk['text'][:800]}\n"
+        context_parts.append(evidence_text)
+        
+        # 4. Supporting Context
+        if context.supporting_chunks:
+            support_text = "Additional Context:\n"
+            for chunk in context.supporting_chunks[:3]:
+                support_text += f"- Page {chunk['page']}: {chunk['text'][:300]}\n"
+            context_parts.append(support_text)
+        
+        # 5. Related Notes (for note references)
+        if context.related_notes and exp_type in ["note", "indas"]:
+            notes_text = "Related Disclosures (Notes):\n"
+            for note in context.related_notes[:3]:
+                notes_text += f"- Note {note.get('note_number')}: {note.get('header', '')}\n"
+            context_parts.append(notes_text)
+        
+        # Combine and truncate if necessary
+        full_context = "\n".join(context_parts)
+        if len(full_context) > max_chars:
+            full_context = full_context[:max_chars] + "\n[Context truncated due to length]"
+        
+        # Type-specific instructions
+        instructions = self._get_explanation_instructions(exp_type)
+        
+        prompt = f"""You are a Financial Analysis Assistant specializing in Indian Accounting Standards (Ind AS). 
+Analyze the following document context and provide a detailed explanation.
+
+{instructions}
+
+{full_context}
+
+Based on the above context from the uploaded financial document, provide a comprehensive explanation.
+Cite specific page numbers and note references where applicable.
+If the context is insufficient to answer accurately, state what additional information would be needed.
+
+Response Format:
+1. **Direct Answer**: Clear, concise explanation
+2. **Detailed Analysis**: In-depth breakdown with specific numbers/dates from context
+3. **Accounting Treatment**: How this is treated under applicable Ind AS standards
+4. **Source References**: Page numbers and note numbers cited
+5. **Related Concepts**: Other relevant areas in the document to examine
+
+Explanation:"""
+        
+        return prompt
+    
+    def _get_explanation_instructions(self, exp_type: str) -> str:
+        """Get specific instructions based on explanation type"""
+        
+        instructions = {
+            "general": """Provide a comprehensive explanation of the query based on the document content. 
+Focus on accuracy and cite specific data points.""",
+            
+            "indas": """Explain the specific Ind AS standard treatment shown in the document.
+Include:
+- Key requirements of the standard as applied
+- How the company has implemented it (specific numbers/policies)
+- Any disclosures made under this standard
+- Comparison with previous year if applicable""",
+            
+            "line_item": """Explain this specific financial statement line item:
+- Definition and composition per the document
+- Amount and change from previous year
+- Accounting policy applied
+- Related notes for detailed breakdown
+- Significance in context of overall financials""",
+            
+            "note": """Explain this specific note to the accounts:
+- Purpose and content summary
+- Key disclosures and numbers
+- Accounting judgments/estimates involved
+- Impact on financial statements
+- Compliance with disclosure requirements""",
+            
+            "trend": """Analyze the trend or change:
+- Calculate YoY or QoQ change percentages
+- Explain reasons cited in the document
+- Contextual significance (materiality)
+- Impact on financial health/ratios
+- Management commentary if available""",
+            
+            "ratio": """Explain this financial metric or ratio:
+- Calculation methodology used
+- Current vs previous period comparison
+- Industry context if available
+- Implications for liquidity/profitability/solvency"""
+        }
+        
+        return instructions.get(exp_type, instructions["general"])
+    
+    def _iterate_explanation(
+        self, 
+        context: ExplanationContext, 
+        exp_type: str
+    ) -> LLMResponse:
+        """Iterate query refinement when confidence is low"""
+        
+        # Expand query with synonyms and related terms
+        expanded_queries = self._expand_query_for_iteration(context.query)
+        
+        # This would typically re-query the RAG engine, but since we're in the explainer,
+        # we signal that more context is needed
+        return LLMResponse(
+            explanation=f"Insufficient context found for '{context.query}'. "
+                       f"Attempting to search with expanded terms: {', '.join(expanded_queries[:3])}",
+            citations=[],
+            suggested_followups=expanded_queries,
+            confidence=0.0,
+            model_used=self.model,
+            tokens_used=0
+        )
+    
+    def _expand_query_for_iteration(self, query: str) -> List[str]:
+        """Generate alternative queries for better context retrieval"""
+        
+        variations = [query]
+        
+        # Add IndAS standard references if applicable
+        indas_match = re.search(r'ind\s*as\s*(\d+)', query, re.IGNORECASE)
+        if not indas_match:
+            # Try to map keywords to standards
+            if 'revenue' in query.lower():
+                variations.append(f"{query} Ind AS 115")
+            elif 'lease' in query.lower():
+                variations.append(f"{query} Ind AS 116")
+            elif 'financial instrument' in query.lower():
+                variations.append(f"{query} Ind AS 109")
+        
+        # Add entity type variations
+        if 'standalone' not in query.lower() and 'consolidated' not in query.lower():
+            variations.append(f"standalone {query}")
+            variations.append(f"consolidated {query}")
+        
+        # Add year variations if not present
+        if not re.search(r'\d{4}', query):
+            variations.append(f"{query} current year")
+            variations.append(f"{query} previous year")
+        
+        return variations
+    
+    def _call_ollama(self, prompt: str, stream: bool = False) -> Dict:
+        """Call local Ollama instance"""
+        
+        url = f"{self.ollama_url}/api/generate"
+        
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": stream,
+            "options": {
+                "temperature": 0.3,  # Lower for factual accuracy
+                "num_predict": 2048,  # Reasonable length for explanations
+                "top_p": 0.9,
+                "repeat_penalty": 1.1
+            }
+        }
+        
+        try:
+            if stream:
+                # Handle streaming in real implementation
+                response = requests.post(url, json=payload, stream=True)
+            else:
+                response = requests.post(url, json=payload)
+                return response.json()
+        except requests.exceptions.ConnectionError:
+            return {
+                "error": "Could not connect to Ollama. Ensure it's running at " + self.ollama_url,
+                "response": ""
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "response": ""
+            }
+    
+    def _structure_response(
+        self, 
+        api_response: Dict, 
+        context: ExplanationContext
+    ) -> LLMResponse:
+        """Structure the raw LLM response with citations"""
+        
+        raw_text = api_response.get("response", "")
+        
+        # Extract citations (simple regex-based extraction)
+        citations = []
+        
+        # Look for page references
+        page_refs = re.findall(r'[Pp]age[s]?\s*(\d+)', raw_text)
+        for page in page_refs:
+            chunk = next((c for c in context.primary_chunks if str(c['page']) == page), None)
+            if chunk:
+                citations.append({
+                    "type": "page",
+                    "ref": page,
+                    "text": chunk['text'][:200]
+                })
+        
+        # Look for note references
+        note_refs = re.findall(r'[Nn]ote[s]?\s*(\d+)', raw_text)
+        for note_num in note_refs:
+            note = next((n for n in context.related_notes if n.get('note_number') == note_num), None)
+            if note:
+                citations.append({
+                    "type": "note",
+                    "ref": note_num,
+                    "text": note.get('header', '')
+                })
+        
+        # Generate follow-up suggestions
+        followups = self._generate_followups(context, raw_text)
+        
+        return LLMResponse(
+            explanation=raw_text,
+            citations=citations,
+            suggested_followups=followups,
+            confidence=context.confidence,
+            model_used=self.model,
+            tokens_used=api_response.get("eval_count", 0)
+        )
+    
+    def _generate_followups(
+        self, 
+        context: ExplanationContext, 
+        response_text: str
+    ) -> List[str]:
+        """Generate intelligent follow-up questions"""
+        
+        followups = []
+        
+        # Based on entity type
+        if context.entity_type == "standalone":
+            followups.append("How does this compare with the consolidated figures?")
+        else:
+            followups.append("What is the standalone position for this item?")
+        
+        # Based on content
+        if "Ind AS" in response_text:
+            followups.append("What are the disclosure requirements under this standard?")
+        
+        if "previous year" in response_text.lower():
+            followups.append("What were the main reasons for this change?")
+        
+        if "note" in response_text.lower():
+            followups.append("Show me the detailed breakdown from the related note")
+        
+        # Add specific followups based on statement type
+        if context.statement_type == "balance_sheet":
+            followups.append("How does this affect the debt-equity ratio?")
+        elif context.statement_type == "income_statement":
+            followups.append("What is the impact on operating margins?")
+        
+        return followups[:3]  # Limit to top 3
+
+
 class RAGEngine:
     def __init__(self):
         self.chunks = []
+        self.corpus_stats = {}
+        self.explainer = FinancialExplainer()
         self.corpus_stats = {}  # For IDF
         
         # Use unified terminology map if available, else fallback to legacy
@@ -289,682 +659,294 @@ class RAGEngine:
             'being', 'having', 'doing', 'made', 'found', 'based', 'given',
             'per', 'etc', 'ie', 'eg', 'viz', 'sr', 'no', 'nos', 'mr', 'mrs', 'ms',
         }
-
-    def index_document(self, full_text):
+        
+    def explain_query(
+        self, 
+        query: str, 
+        explanation_type: str = "general",
+        page_context: Optional[Tuple[int, int]] = None,
+        entity_filter: Optional[str] = None
+    ) -> Dict:
         """
-        Splits document into page-based chunks and builds index.
-        Expects '--- Page X ---' delimiters.
-        Enhanced for IndAS Financial Statements.
-        """
-        self.chunks = []
-        
-        # Preprocess text for financial documents
-        full_text = self._preprocess_financial_text(full_text)
-        
-        # Split by page delimiter
-        parts = re.split(r'--- Page (\d+) ---\n', full_text)
-        
-        current_chunks = []
-        
-        if len(parts) > 1:
-            for i in range(1, len(parts), 2):
-                page_num = parts[i]
-                content = parts[i+1] if i+1 < len(parts) else ""
-                
-                # Enhanced chunking for financial documents
-                sections = self._split_financial_sections(content)
-                
-                for s_idx, section in enumerate(sections):
-                    if not section['text'].strip():
-                        continue
-                    
-                    chunk = self._create_chunk(
-                        chunk_id=f"p{page_num}_s{s_idx}",
-                        page=int(page_num),
-                        section=section
-                    )
-                    current_chunks.append(chunk)
-        else:
-            # Fallback for plain text without page markers
-            sections = self._split_financial_sections(full_text)
-            for s_idx, section in enumerate(sections):
-                if not section['text'].strip():
-                    continue
-                
-                chunk = self._create_chunk(
-                    chunk_id=f"raw_{s_idx}",
-                    page=1,
-                    section=section
-                )
-                current_chunks.append(chunk)
-                 
-        self.chunks = current_chunks
-        self._build_stats()
-        return json.dumps({"count": len(self.chunks)})
-
-    def _create_chunk(self, chunk_id, page, section):
-        """Create a chunk with all metadata."""
-        tokens = self._tokenize(section['text'])
-        financial_terms = self._extract_financial_terms(section['text'])
-        
-        return {
-            "id": chunk_id,
-            "page": page,
-            "text": section['text'],
-            "section_type": section.get('type', 'general'),
-            "section_header": section.get('header', ''),
-            "tokens": Counter(tokens),
-            "financial_terms": financial_terms,
-            "len": len(tokens),
-            "numbers": self._extract_financial_numbers(section['text']),
-            "indas_refs": self._extract_indas_references(section['text']),
-            "has_table": self._is_table_content(section['text']),
-        }
-
-    def _preprocess_financial_text(self, text):
-        """Preprocess text for better financial document handling."""
-        # Normalize Ind AS variations
-        text = re.sub(r'Ind[\s\-]*AS[\s\-]*(\d+)', r'IndAS \1', text, flags=re.IGNORECASE)
-        text = re.sub(r'IND[\s\-]*AS[\s\-]*(\d+)', r'IndAS \1', text, flags=re.IGNORECASE)
-        
-        # Normalize currency symbols
-        text = re.sub(r'₹\s*', 'INR ', text)
-        text = re.sub(r'Rs\.?\s*', 'INR ', text)
-        text = re.sub(r'\$\s*', 'USD ', text)
-        text = re.sub(r'€\s*', 'EUR ', text)
-        
-        # Normalize common financial abbreviations
-        text = re.sub(r'\bP\s*&\s*L\b', 'Profit and Loss', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bB/S\b', 'Balance Sheet', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bPBT\b', 'Profit Before Tax', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bPAT\b', 'Profit After Tax', text, flags=re.IGNORECASE)
-        text = re.sub(r'\bEBITDA\b', 'Earnings Before Interest Tax Depreciation Amortization', text, flags=re.IGNORECASE)
-        
-        # Handle Indian number notation
-        text = re.sub(r'(\d+(?:[,\d]*)?(?:\.\d+)?)\s*(?:lakhs?|lacs?)\b', r'\1 lakhs', text, flags=re.IGNORECASE)
-        text = re.sub(r'(\d+(?:[,\d]*)?(?:\.\d+)?)\s*(?:crores?|crs?\.?)\b', r'\1 crores', text, flags=re.IGNORECASE)
-        text = re.sub(r'(\d+(?:[,\d]*)?(?:\.\d+)?)\s*(?:millions?|mn\.?)\b', r'\1 million', text, flags=re.IGNORECASE)
-        text = re.sub(r'(\d+(?:[,\d]*)?(?:\.\d+)?)\s*(?:billions?|bn\.?)\b', r'\1 billion', text, flags=re.IGNORECASE)
-        
-        # Normalize fiscal year references
-        text = re.sub(r'FY\s*[\'"]?(\d{2,4})[-/]?(\d{2,4})?', r'FY\1\2', text, flags=re.IGNORECASE)
-        
-        return text
-
-    def _split_financial_sections(self, content):
-        """
-        Split content into sections recognizing financial document structure.
-        """
-        sections = []
-        
-        # First try to split by double newlines (paragraphs)
-        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
-        
-        for para in paragraphs:
-            section_type = 'general'
-            header = ''
-            
-            # Check if paragraph starts with a known section pattern
-            for pattern, s_type in self.section_patterns:
-                match = re.match(pattern, para, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    section_type = s_type
-                    header = match.group(0)
-                    break
-            
-            # Check for table-like content
-            if self._is_table_content(para):
-                if section_type == 'general':
-                    section_type = 'table'
-            
-            # Check for note numbers in content
-            note_match = re.search(r'\((?:Refer\s+)?Note\s*(?:No\.?)?\s*(\d+)\)', para, re.IGNORECASE)
-            
-            sections.append({
-                'text': para,
-                'type': section_type,
-                'header': header,
-                'referenced_note': note_match.group(1) if note_match else None
-            })
-        
-        return sections if sections else [{'text': content, 'type': 'general', 'header': ''}]
-
-    def _is_table_content(self, text):
-        """Detect if content appears to be tabular data."""
-        lines = text.split('\n')
-        if len(lines) < 2:
-            return False
-        
-        number_lines = 0
-        for line in lines:
-            numbers = re.findall(r'[\d,]+(?:\.\d+)?', line)
-            if len(numbers) >= 2:
-                number_lines += 1
-        
-        return number_lines >= len(lines) * 0.4
-
-    def _tokenize(self, text):
-        """Enhanced tokenization for financial documents."""
-        text_lower = text.lower()
-        
-        # Preserve important financial terms before cleaning
-        preserved = []
-        
-        # Preserve Ind AS references
-        for match in re.finditer(r'indas\s*\d+', text_lower):
-            preserved.append(match.group().replace(' ', ''))
-        
-        # Preserve percentages
-        for match in re.finditer(r'\d+(?:\.\d+)?%', text_lower):
-            preserved.append('pct_' + match.group().replace('%', ''))
-        
-        # Preserve financial numbers with units
-        for match in re.finditer(r'\d+(?:\.\d+)?\s*(?:lakhs?|crores?|million|billion)', text_lower):
-            preserved.append(match.group().replace(' ', '_'))
-        
-        # Preserve fiscal year references
-        for match in re.finditer(r'fy\d{2,4}', text_lower):
-            preserved.append(match.group())
-        
-        # Clean text for regular tokenization
-        text_clean = re.sub(r'[^a-z0-9\s]', ' ', text_lower)
-        tokens = text_clean.split()
-        
-        # Add preserved terms
-        tokens.extend(preserved)
-        
-        # Expand acronyms
-        expanded_tokens = []
-        for token in tokens:
-            expanded_tokens.append(token)
-            if token in self.acronym_map:
-                expanded_tokens.extend(self.acronym_map[token].split())
-        
-        # Remove stopwords but keep financial terms
-        filtered_tokens = []
-        for token in expanded_tokens:
-            if len(token) < 2:
-                continue
-            if token not in self.stopwords or self._is_financial_term(token):
-                filtered_tokens.append(token)
-        
-        return filtered_tokens
-
-    def _is_financial_term(self, token):
-        """Check if a token is a significant financial term."""
-        if token in self.financial_keywords:
-            return True
-        for kw in self.financial_keywords:
-            if token in kw.split():
-                return True
-        return False
-
-    def _extract_financial_terms(self, text):
-        """Extract and count significant financial terms from text with metric mappings."""
-        text_lower = text.lower()
-        found_terms = {}
-        
-        # Check for multi-word financial terms first (longer terms first)
-        for term, boost in sorted(self.financial_keywords.items(), 
-                                   key=lambda x: len(x[0]), reverse=True):
-            pattern = r'\b' + re.escape(term) + r'\b'
-            matches = re.findall(pattern, text_lower)
-            count = len(matches)
-            if count > 0:
-                term_data = {'count': count, 'boost': boost}
-                
-                # Add metric mappings if using terminology map
-                if USE_TERMINOLOGY_MAP and term in KEYWORD_TO_TERM:
-                    term_keys = KEYWORD_TO_TERM[term]
-                    term_data['term_keys'] = term_keys
-                    # Collect all associated metrics
-                    metrics = []
-                    for tk in term_keys:
-                        metrics.extend(get_metric_ids_for_term(tk))
-                    term_data['metric_ids'] = list(set(metrics))
-                
-                found_terms[term] = term_data
-        
-        return found_terms
-    
-    def extract_terms_with_metrics(self, text):
-        """
-        Extract financial terms and return structured data with metric associations.
-        Returns dict mapping term_key -> {keywords_found, metric_ids, category, standards}
-        """
-        if not USE_TERMINOLOGY_MAP:
-            return {}
-        
-        text_lower = text.lower()
-        results = {}
-        
-        for term_key, data in TERMINOLOGY_MAP.items():
-            keywords_found = []
-            for kw in data['keywords']:
-                pattern = r'\b' + re.escape(kw.lower()) + r'\b'
-                if re.search(pattern, text_lower):
-                    keywords_found.append(kw)
-            
-            if keywords_found:
-                results[term_key] = {
-                    'keywords_found': keywords_found,
-                    'category': data['category'],
-                    'metric_ids': data.get('metric_ids', []),
-                    'standards': data.get('standards', {}),
-                    'boost': data.get('boost', 1.0)
-                }
-        
-        return results
-    
-    def get_metrics_for_extracted_terms(self, text):
-        """
-        Get list of applicable metric calculations based on terms found in text.
-        Returns list of unique metric_ids that can be calculated from the data.
-        """
-        terms_data = self.extract_terms_with_metrics(text)
-        all_metrics = set()
-        
-        for term_key, data in terms_data.items():
-            for metric_id in data.get('metric_ids', []):
-                all_metrics.add(metric_id)
-        
-        return list(all_metrics)
-
-    def _extract_financial_numbers(self, text):
-        """Extract financial numbers with context."""
-        numbers = []
-        
-        # Pattern for numbers with optional currency and units
-        patterns = [
-            r'(?:INR|USD|EUR)\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|crores?|million|billion)?',
-            r'([\d,]+(?:\.\d+)?)\s*(?:lakhs?|crores?|million|billion)',
-            r'([\d,]+(?:\.\d+)?)\s*%',
-        ]
-        
-        for pattern in patterns:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                numbers.append(match.group())
-        
-        return numbers[:20]  # Limit to avoid bloat
-
-    def _extract_indas_references(self, text):
-        """Extract Ind AS standard references with context."""
-        refs = []
-        pattern = r'(?:Ind[\s\-]*AS|IndAS)\s*(\d+)'
-        
-        for match in re.finditer(pattern, text, re.IGNORECASE):
-            std_num = match.group(1)
-            std_name = self.indas_standards.get(std_num, '')
-            refs.append({
-                'number': std_num,
-                'full_ref': f"IndAS {std_num}",
-                'name': std_name
-            })
-        
-        # Deduplicate by number
-        seen = set()
-        unique_refs = []
-        for ref in refs:
-            if ref['number'] not in seen:
-                seen.add(ref['number'])
-                unique_refs.append(ref)
-        
-        return unique_refs
-
-    def _build_stats(self):
-        """Calculate IDF with financial term boosting."""
-        doc_count = len(self.chunks)
-        self.corpus_stats = {}
-        if doc_count == 0: 
-            return
-
-        # Count document frequency for each token
-        for chunk in self.chunks:
-            for token in chunk['tokens']:
-                self.corpus_stats[token] = self.corpus_stats.get(token, 0) + 1
-        
-        # Convert doc counts to IDF score with financial boosting
-        for token, count in self.corpus_stats.items():
-            base_idf = math.log((doc_count + 1) / (count + 1)) + 1
-            
-            # Apply boost for financial terms
-            boost = 1.0
-            if token in self.financial_keywords:
-                boost = self.financial_keywords[token]
-            elif self._is_financial_term(token):
-                boost = 1.3
-            
-            self.corpus_stats[token] = base_idf * boost
-
-    def _expand_query(self, query_tokens):
-        """Expand query with synonyms and related financial terms."""
-        expanded = list(query_tokens)
-        
-        for token in query_tokens:
-            # Add synonyms
-            if token in self.synonyms:
-                expanded.extend(self.synonyms[token])
-            
-            # Expand acronyms
-            if token in self.acronym_map:
-                expanded.extend(self.acronym_map[token].split())
-        
-        return list(set(expanded))
-
-    def search(self, query, top_k=5, section_filter=None, page_range=None, 
-               include_tables=True, boost_indas=True):
-        """
-        Enhanced BM25 ranking with financial term boosting.
+        High-level method to explain a query using document context + LLM.
         
         Args:
-            query: Search query string
-            top_k: Number of top results to return
-            section_filter: Optional filter for section types
-            page_range: Optional tuple (start_page, end_page)
-            include_tables: Whether to include table sections
-            boost_indas: Whether to boost Ind AS references
+            query: User question
+            explanation_type: Type of explanation needed
+            page_context: Optional (start_page, end_page) to limit search
+            entity_filter: 'standalone' or 'consolidated' to filter context
         """
         if not self.chunks:
-            return json.dumps([])
-
-        query_lower = query.lower()
-        query_tokens = self._tokenize(query)
+            return {"error": "No document indexed. Please upload a file first."}
         
-        if not query_tokens:
-            return json.dumps([])
-
-        # Expand query with synonyms
-        expanded_tokens = self._expand_query(query_tokens)
-        
-        # Check for Ind AS specific search
-        indas_search = []
-        for match in re.finditer(r'(?:ind\s*as|indas)\s*(\d+)', query_lower):
-            indas_search.append(match.group(1))
-        
-        # Check for section-specific queries
-        query_section_hints = self._detect_section_hints(query_lower)
-        
-        scores = []
-        avg_doc_len = sum(c['len'] for c in self.chunks) / len(self.chunks) if self.chunks else 1
-        
-        # BM25 parameters (tuned for financial docs)
-        k1 = 1.2
-        b = 0.75
-
-        for chunk in self.chunks:
-            # Apply filters
-            if section_filter and chunk.get('section_type') != section_filter:
-                continue
-            if page_range:
-                if chunk['page'] < page_range[0] or chunk['page'] > page_range[1]:
-                    continue
-            if not include_tables and chunk.get('has_table'):
-                continue
-            
-            score = 0
-            doc_len = chunk['len']
-            
-            # BM25 scoring with expanded tokens
-            for q_token in expanded_tokens:
-                if q_token not in chunk['tokens']:
-                    continue
-                
-                term_freq = chunk['tokens'][q_token]
-                idf = self.corpus_stats.get(q_token, 0)
-                
-                # BM25 term weight
-                numerator = idf * term_freq * (k1 + 1)
-                denominator = term_freq + k1 * (1 - b + b * (doc_len / avg_doc_len))
-                score += numerator / denominator
-            
-            # Boost for financial term matches
-            for term, data in chunk.get('financial_terms', {}).items():
-                term_words = set(term.split())
-                query_words = set(query_tokens)
-                if term in query_lower or term_words & query_words:
-                    score += data['count'] * data['boost'] * 0.5
-            
-            # Boost for Ind AS reference matches
-            if boost_indas and indas_search:
-                for ref in chunk.get('indas_refs', []):
-                    if ref['number'] in indas_search:
-                        score += 5.0  # Strong boost for exact Ind AS match
-            
-            # Section type relevance boost
-            section_type = chunk.get('section_type', 'general')
-            if section_type != 'general':
-                score *= 1.15
-                
-                # Extra boost if query hints at the section type
-                if section_type in query_section_hints:
-                    score *= 1.4
-            
-            # Slight boost for chunks with Ind AS references (more authoritative)
-            if chunk.get('indas_refs'):
-                score *= 1.05
-            
-            if score > 0:
-                scores.append((score, chunk))
-
-        # Sort by score desc
-        scores.sort(key=lambda x: x[0], reverse=True)
-        
-        # Return Top K
-        results = []
-        for score, chunk in scores[:top_k]:
-            indas_refs_simple = [ref['full_ref'] for ref in chunk.get('indas_refs', [])]
-            
-            results.append({
-                "id": chunk['id'],
-                "page": chunk['page'],
-                "text": chunk['text'],
-                "score": round(score, 4),
-                "section_type": chunk.get('section_type', 'general'),
-                "section_header": chunk.get('section_header', ''),
-                "indas_refs": indas_refs_simple,
-                "financial_terms": list(chunk.get('financial_terms', {}).keys())[:10],
-                "has_table": chunk.get('has_table', False)
-            })
-            
-        return json.dumps(results)
-
-    def _detect_section_hints(self, query):
-        """Detect which section types the query might be targeting."""
-        hints = set()
-        
-        section_keywords = {
-            'note': ['note', 'notes', 'disclosure'],
-            'accounting_policy': ['accounting policy', 'policies', 'significant accounting'],
-            'related_party': ['related party', 'related parties', 'kmp', 'key management'],
-            'segment': ['segment', 'segments', 'operating segment'],
-            'tax': ['tax', 'deferred tax', 'income tax', 'mat'],
-            'revenue': ['revenue', 'income', 'sales', 'turnover'],
-            'ppe': ['property', 'plant', 'equipment', 'ppe', 'fixed assets', 'depreciation'],
-            'intangible': ['intangible', 'goodwill', 'amortization'],
-            'fair_value': ['fair value', 'level 1', 'level 2', 'level 3', 'valuation'],
-            'lease': ['lease', 'rou', 'right of use', 'lessee', 'lessor'],
-            'provisions': ['provision', 'contingent', 'warranty'],
-            'employee_benefits': ['employee benefit', 'gratuity', 'leave', 'pension', 'actuarial'],
-            'borrowings': ['borrowing', 'loan', 'debt', 'credit facility'],
-            'inventory': ['inventory', 'inventories', 'stock', 'nrv'],
-            'financial_instruments': ['financial instrument', 'derivative', 'hedge', 'ecl'],
-            'eps': ['earnings per share', 'eps', 'diluted'],
-            'equity': ['share capital', 'equity', 'reserves', 'retained earnings'],
-        }
-        
-        for section_type, keywords in section_keywords.items():
-            for kw in keywords:
-                if kw in query:
-                    hints.add(section_type)
-                    break
-        
-        return hints
-
-    def search_by_indas(self, standard_number, top_k=10):
-        """
-        Search specifically for content related to a particular Ind AS standard.
-        """
-        if not self.chunks:
-            return json.dumps([])
-        
-        standard_number = str(standard_number)
-        results = []
-        
-        for chunk in self.chunks:
-            indas_refs = chunk.get('indas_refs', [])
-            matching_refs = [r for r in indas_refs if r['number'] == standard_number]
-            
-            if matching_refs:
-                # Score based on reference count and financial term density
-                score = len(matching_refs) * 3.0
-                score += len(chunk.get('financial_terms', {})) * 0.2
-                score += 1 if chunk.get('section_type') != 'general' else 0
-                
-                results.append({
-                    "id": chunk['id'],
-                    "page": chunk['page'],
-                    "text": chunk['text'],
-                    "score": round(score, 4),
-                    "section_type": chunk.get('section_type', 'general'),
-                    "indas_refs": [r['full_ref'] for r in indas_refs],
-                    "standard_name": self.indas_standards.get(standard_number, '')
-                })
-        
-        results.sort(key=lambda x: x['score'], reverse=True)
-        return json.dumps(results[:top_k])
-
-    def search_by_topic(self, topic, top_k=10):
-        """
-        Search by financial topic (maps to relevant Ind AS standards).
-        """
-        topic_mapping = {
-            'revenue': ['115'],
-            'lease': ['116'],
-            'financial instruments': ['109', '107', '32'],
-            'impairment': ['36'],
-            'tax': ['12'],
-            'employee benefits': ['19'],
-            'ppe': ['16'],
-            'intangible': ['38'],
-            'inventory': ['2'],
-            'provisions': ['37'],
-            'related party': ['24'],
-            'segment': ['108'],
-            'fair value': ['113'],
-            'consolidation': ['110', '111', '112'],
-            'business combination': ['103'],
-            'eps': ['33'],
-            'presentation': ['1'],
-            'cash flow': ['7'],
-        }
-        
-        topic_lower = topic.lower()
-        relevant_standards = []
-        
-        for key, standards in topic_mapping.items():
-            if key in topic_lower or topic_lower in key:
-                relevant_standards.extend(standards)
-        
-        if not relevant_standards:
-            # Fall back to regular search
-            return self.search(topic, top_k=top_k)
-        
-        # Search for all relevant standards
-        all_results = []
-        for std in set(relevant_standards):
-            results = json.loads(self.search_by_indas(std, top_k=top_k))
-            all_results.extend(results)
-        
-        # Also add regular search results
-        regular_results = json.loads(self.search(topic, top_k=top_k))
-        all_results.extend(regular_results)
-        
-        # Deduplicate by chunk id and sort
-        seen_ids = set()
-        unique_results = []
-        for r in sorted(all_results, key=lambda x: x['score'], reverse=True):
-            if r['id'] not in seen_ids:
-                seen_ids.add(r['id'])
-                unique_results.append(r)
-        
-        return json.dumps(unique_results[:top_k])
-
-    def get_document_summary(self):
-        """
-        Get a summary of the indexed document structure.
-        """
-        if not self.chunks:
-            return json.dumps({})
-        
-        summary = {
-            'total_chunks': len(self.chunks),
-            'total_pages': len(set(c['page'] for c in self.chunks)),
-            'page_range': {
-                'min': min(c['page'] for c in self.chunks),
-                'max': max(c['page'] for c in self.chunks)
-            },
-            'section_types': {},
-            'indas_standards_referenced': [],
-            'top_financial_terms': [],
-            'table_chunks': sum(1 for c in self.chunks if c.get('has_table'))
-        }
-        
-        # Count section types
-        for chunk in self.chunks:
-            s_type = chunk.get('section_type', 'general')
-            summary['section_types'][s_type] = summary['section_types'].get(s_type, 0) + 1
-        
-        # Collect all Ind AS references with names
-        all_refs = {}
-        for chunk in self.chunks:
-            for ref in chunk.get('indas_refs', []):
-                if ref['number'] not in all_refs:
-                    all_refs[ref['number']] = ref
-        
-        summary['indas_standards_referenced'] = sorted(
-            [{'number': r['number'], 'name': r['name']} for r in all_refs.values()],
-            key=lambda x: int(x['number'])
+        # Step 1: Intelligent context retrieval (iterative)
+        context = self._gather_explanation_context(
+            query, 
+            explanation_type, 
+            page_context,
+            entity_filter
         )
         
-        # Get top financial terms
-        term_counts = Counter()
-        for chunk in self.chunks:
-            for term, data in chunk.get('financial_terms', {}).items():
-                term_counts[term] += data['count']
-        
-        summary['top_financial_terms'] = [
-            {'term': t[0], 'count': t[1]} 
-            for t in term_counts.most_common(30)
-        ]
-        
-        return json.dumps(summary)
-
-    def get_notes_index(self):
+        # Step 2: Generate explanation via LLM
+        try:
+            explanation = self.explainer.explain(context, explanation_type)
+            
+            return {
+                "success": True,
+                "explanation": explanation.explanation,
+                "citations": explanation.citations,
+                "suggested_followups": explanation.suggested_followups,
+                "context_meta": {
+                    "pages_used": list(set(c['page'] for c in context.primary_chunks)),
+                    "indas_standards": [s['number'] for s in context.indas_standards],
+                    "confidence": explanation.confidence,
+                    "model": explanation.model_used
+                }
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "context": {
+                    "primary_chunks_found": len(context.primary_chunks),
+                    "standards_found": len(context.indas_standards)
+                }
+            }
+    
+    def _gather_explanation_context(
+        self,
+        query: str,
+        exp_type: str,
+        page_range: Optional[Tuple[int, int]],
+        entity_filter: Optional[str]
+    ) -> ExplanationContext:
         """
-        Get an index of all notes found in the document.
+        Gather comprehensive context for explanation with iterative refinement.
         """
-        if not self.chunks:
-            return json.dumps([])
         
-        notes = []
+        # Iteration 1: Direct search
+        primary_results = json.loads(self.search(
+            query, 
+            top_k=10,
+            page_range=page_range
+        ))
+        
+        # Filter by entity type if specified
+        if entity_filter:
+            primary_results = [
+                r for r in primary_results 
+                if entity_filter.lower() in r.get('text', '').lower() or 
+                self._detect_entity_in_chunk(r) == entity_filter
+            ]
+        
+        confidence = self._calculate_context_confidence(primary_results, query)
+        
+        # Iteration 2: If low confidence, expand query
+        supporting_results = []
+        if confidence < 0.6:
+            expanded_queries = self._get_expanded_queries(query, exp_type)
+            for eq in expanded_queries[:2]:  # Limit to avoid too many calls
+                additional = json.loads(self.search(eq, top_k=5))
+                supporting_results.extend(additional)
+            
+            # Remove duplicates
+            seen_ids = {r['id'] for r in primary_results}
+            supporting_results = [r for r in supporting_results if r['id'] not in seen_ids]
+        
+        # Iteration 3: Gather related notes if applicable
+        related_notes = []
+        if exp_type in ["note", "indas", "line_item"]:
+            # Extract note references from primary results
+            for chunk in primary_results:
+                if chunk.get('section_type') == 'note':
+                    related_notes.append({
+                        'note_number': self._extract_note_number(chunk.get('section_header', '')),
+                        'header': chunk.get('section_header', ''),
+                        'page': chunk['page']
+                    })
+            
+            # Also look for notes referenced in text
+            for chunk in primary_results:
+                note_refs = re.findall(r'[Nn]ote\s*(\d+)', chunk.get('text', ''))
+                for ref in note_refs:
+                    note_chunk = self._get_note_by_number(ref)
+                    if note_chunk and note_chunk['id'] not in [n.get('chunk_id') for n in related_notes]:
+                        related_notes.append({
+                            'note_number': ref,
+                            'header': note_chunk.get('section_header', ''),
+                            'page': note_chunk['page'],
+                            'chunk_id': note_chunk['id']
+                        })
+        
+        # Extract IndAS standards from context
+        indas_standards = []
+        for chunk in primary_results + supporting_results:
+            for ref in chunk.get('indas_refs', []):
+                if ref not in [s['full_ref'] for s in indas_standards]:
+                    std_num = re.search(r'(\d+)', ref)
+                    if std_num:
+                        indas_standards.append({
+                            'number': std_num.group(1),
+                            'full_ref': ref,
+                            'name': self.indas_standards.get(std_num.group(1), '')
+                        })
+        
+        # Detect entity and statement type from context
+        entity_type = entity_filter or self._detect_entity_from_chunks(primary_results)
+        stmt_type = self._detect_statement_type_from_chunks(primary_results)
+        
+        # Calculate page range
+        all_pages = [c['page'] for c in primary_results + supporting_results if 'page' in c]
+        page_min = min(all_pages) if all_pages else 1
+        page_max = max(all_pages) if all_pages else 1
+        
+        # Re-calculate final confidence
+        final_confidence = self._calculate_context_confidence(
+            primary_results + supporting_results, 
+            query
+        )
+        
+        return ExplanationContext(
+            query=query,
+            primary_chunks=primary_results,
+            supporting_chunks=supporting_results,
+            indas_standards=indas_standards,
+            entity_type=entity_type,
+            statement_type=stmt_type,
+            page_range=(page_min, page_max),
+            related_notes=related_notes,
+            financial_summary=self._get_relevant_summary(primary_results),
+            iteration=2 if supporting_results else 1,
+            confidence=final_confidence
+        )
+    
+    def _calculate_context_confidence(
+        self, 
+        chunks: List[Dict], 
+        query: str
+    ) -> float:
+        """Calculate how confident we are in the retrieved context"""
+        
+        if not chunks:
+            return 0.0
+        
+        scores = [c.get('score', 0) for c in chunks[:5]]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # Normalize score (assuming BM25 scores typically 0-50 range)
+        normalized = min(avg_score / 20, 1.0)
+        
+        # Check for exact keyword matches
+        query_terms = set(self._tokenize(query))
+        match_ratio = 0
+        for chunk in chunks[:3]:
+            chunk_text = chunk.get('text', '').lower()
+            matches = sum(1 for term in query_terms if term in chunk_text)
+            match_ratio = max(match_ratio, matches / len(query_terms) if query_terms else 0)
+        
+        return (normalized * 0.6) + (match_ratio * 0.4)
+    
+    def _get_expanded_queries(self, query: str, exp_type: str) -> List[str]:
+        """Generate expanded queries for better context retrieval"""
+        
+        variations = []
+        
+        # Add financial terminology variations
+        for term, synonyms in self.synonyms.items():
+            if term in query.lower():
+                for syn in synonyms:
+                    variations.append(query.replace(term, syn))
+        
+        # Add IndAS context
+        if exp_type == "indas":
+            standards = self._extract_standards_from_query(query)
+            for std in standards:
+                variations.append(f"Ind AS {std} disclosure requirements")
+                variations.append(f"Ind AS {std} accounting policy")
+        
+        # Add entity variations
+        if "standalone" not in query.lower() and "consolidated" not in query.lower():
+            variations.append(f"standalone {query}")
+        
+        return list(set(variations))[:5]  # Limit variations
+    
+    def _detect_entity_in_chunk(self, chunk: Dict) -> str:
+        """Detect if chunk refers to standalone or consolidated"""
+        text = chunk.get('text', '').lower()
+        if 'consolidated' in text and 'standalone' not in text:
+            return 'consolidated'
+        elif 'standalone' in text:
+            return 'standalone'
+        return 'unknown'
+    
+    def _detect_entity_from_chunks(self, chunks: List[Dict]) -> str:
+        """Determine predominant entity type from chunks"""
+        if not chunks:
+            return "unknown"
+        
+        consol_count = sum(1 for c in chunks if 'consolidated' in c.get('text', '').lower())
+        standalone_count = sum(1 for c in chunks if 'standalone' in c.get('text', '').lower())
+        
+        return "consolidated" if consol_count > standalone_count else "standalone"
+    
+    def _detect_statement_type_from_chunks(self, chunks: List[Dict]) -> Optional[str]:
+        """Detect if context is from balance sheet, P&L, etc."""
+        if not chunks:
+            return None
+        
+        type_counts = Counter(c.get('section_type') for c in chunks)
+        
+        # Check for statement indicators in text
+        bs_indicators = ['total assets', 'liabilities and equity', 'balance sheet']
+        pl_indicators = ['revenue from operations', 'profit for the year', 'total comprehensive income']
+        cf_indicators = ['cash flow from operating', 'cash and cash equivalents at end']
+        
+        for chunk in chunks[:3]:
+            text = chunk.get('text', '').lower()
+            if any(i in text for i in bs_indicators):
+                return "balance_sheet"
+            elif any(i in text for i in pl_indicators):
+                return "income_statement"
+            elif any(i in text for i in cf_indicators):
+                return "cash_flow"
+        
+        return type_counts.most_common(1)[0][0] if type_counts else None
+    
+    def _extract_note_number(self, header: str) -> str:
+        """Extract note number from header"""
+        match = re.search(r'(\d+)', header)
+        return match.group(1) if match else "Unknown"
+    
+    def _get_note_by_number(self, note_num: str) -> Optional[Dict]:
+        """Retrieve specific note chunk by number"""
         for chunk in self.chunks:
             if chunk.get('section_type') == 'note':
                 header = chunk.get('section_header', '')
-                note_match = re.search(r'(\d+)', header)
-                note_num = note_match.group(1) if note_match else 'Unknown'
-                
-                notes.append({
-                    'note_number': note_num,
-                    'header': header,
-                    'page': chunk['page'],
-                    'chunk_id': chunk['id'],
-                    'preview': chunk['text'][:200] + '...' if len(chunk['text']) > 200 else chunk['text']
-                })
+                if re.search(rf'^{note_num}\b', header) or re.search(rf'\b{note_num}\b', header):
+                    return chunk
+        return None
+    
+    def _extract_standards_from_query(self, query: str) -> List[str]:
+        """Extract Ind AS numbers from query"""
+        matches = re.findall(r'ind\s*as\s*(\d+)', query, re.IGNORECASE)
+        return matches
+    
+    def _get_relevant_summary(self, chunks: List[Dict]) -> Dict:
+        """Generate summary statistics from context chunks"""
+        if not chunks:
+            return {}
         
-        # Sort by note number
-        notes.sort(key=lambda x: int(x['note_number']) if x['note_number'].isdigit() else 999)
-        
-        return json.dumps(notes)
+        pages = [c['page'] for c in chunks]
+        return {
+            "total_chunks": len(chunks),
+            "page_range": f"{min(pages)}-{max(pages)}" if pages else "N/A",
+            "sections": list(set(c.get('section_type') for c in chunks if c.get('section_type'))),
+            "has_tables": any(c.get('has_table') for c in chunks)
+        }
 
 
+# Maintain backward compatibility
 rag = RAGEngine()
+
+# Add new method to rag instance for API exposure
+rag.explain = rag.explain_query

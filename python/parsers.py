@@ -30,7 +30,7 @@ from parser_config import (
 from markdown_converter import MarkdownConverter
 from parser_financial_stmt_detection import FinancialStatementDetector, FinancialPatternMatcher
 from parser_table_extraction import TableExtractor
-from parser_financial_keyword_db import FinancialKeywords
+from terminology_keywords import FinancialKeywords
 from parser_ocr import OCRProcessor
 
 logger = logging.getLogger(__name__)
@@ -597,17 +597,21 @@ class FinancialParser:
         line_lower = line.lower().strip()
         
         # Patterns for detecting statement table headers
+        # Patterns for detecting statement table headers
         consolidated_patterns = [
-            r'consolidated\s+(?:statement|balance\s+sheet|profit\s+and\s+loss|cash\s+flow)',
+            r'consolidated\s+(?:statement|balance\s+sheet|profit\s+(?:and|&)\s+loss|cash\s+flow|changes\s+in\s+equity)',
+            r'consolidated\s+statement\s+of\s+(?:financial\s+position|comprehensive\s+income)',
             r'consolidated\s+financial\s+statements?',
-            r'group\s+(?:statement|balance\s+sheet)',
+            r'group\s+(?:statement|balance\s+sheet|financial\s+statements?)',
+            r'notes\s+to\s+the\s+consolidated\s+financial\s+statements',
         ]
         
         standalone_patterns = [
-            r'standalone\s+(?:statement|balance\s+sheet|profit\s+and\s+loss|cash\s+flow)',
+            r'standalone\s+(?:statement|balance\s+sheet|profit\s+(?:and|&)\s+loss|cash\s+flow|changes\s+in\s+equity)',
+            r'standalone\s+statement\s+of\s+(?:financial\s+position|comprehensive\s+income)',
             r'standalone\s+financial\s+statements?',
             r'separate\s+financial\s+statements?',
-            r'unconsolidated\s+(?:statement|balance)',
+            r'unconsolidated\s+(?:statement|balance|financial)',
             r'company\s+(?:statement|balance\s+sheet)',
         ]
         
@@ -721,9 +725,12 @@ class FinancialParser:
             # If we haven't found a table yet but entity is already identified,
             # still process but be more strict about matching
             if not in_statement_table and not explicit_table_mode:
-                # Be more lenient if the boundary already identifies the entity
-                if entity != ReportingEntity.UNKNOWN:
-                    in_statement_table = True
+                # STRICT MODE: User requested to target ONLY the specific table headers.
+                # We disable the fallback that auto-enables extraction based on page boundaries.
+                # This ensures we don't extract from "Highlights" sections before the actual table.
+                # if entity != ReportingEntity.UNKNOWN:
+                #    in_statement_table = True
+                pass
             
             # Track table structure
             if in_statement_table:
@@ -732,7 +739,8 @@ class FinancialParser:
                 # Detect potential table end (multiple consecutive non-table lines)
                 if not self._is_inside_table_structure(stripped, prev_lines):
                     table_end_indicators += 1
-                    if table_end_indicators > 5:
+                    # Increased threshold to search deeper as per user request
+                    if table_end_indicators > 15:
                         # Likely exited the table
                         in_statement_table = False
                         self._log_debug(f"Exited table after {lines_since_header} lines")
@@ -901,11 +909,35 @@ class FinancialParser:
             
         # Parse final values (last two are usually current and previous year)
         # Handle cases with only 1 value
-        if len(values) >= 2:
-            current_val = safe_float(values[-2])
-            previous_val = safe_float(values[-1])
-        elif len(values) == 1:
-            current_val = safe_float(values[0])
+        
+        # Filter out likely years from the data values if we have enough candidates
+        data_candidates = []
+        for val_str in values:
+            clean = val_str.strip().replace(',', '')
+            try:
+                val = float(re.sub(r'[\(\)\-\s]', '', clean))
+                if is_likely_year_val(val, val_str):
+                    pass 
+                else:
+                    data_candidates.append(val_str)
+            except:
+                pass
+        
+        # If we filtered everything out (e.g. only years found), revert to original values
+        # ONLY if this line matched a terminology keyword
+        if not data_candidates:
+             if term_id: 
+                 data_candidates = values
+             else:
+                 return None
+
+        final_values = data_candidates if data_candidates else values
+
+        if len(final_values) >= 2:
+            current_val = safe_float(final_values[-2])
+            previous_val = safe_float(final_values[-1])
+        elif len(final_values) == 1:
+            current_val = safe_float(final_values[0])
             previous_val = 0.0
         else:
             return None

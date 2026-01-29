@@ -11,6 +11,8 @@ import { DocumentViewer } from './components/DocumentViewer';
 import { FinancialItem, InputStatus, MissingInputItem, MetricGroup, AppSettings, TermMapping } from './types';
 import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, Database, Upload } from 'lucide-react';
 import { callAiProvider } from './services/geminiService';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { LLMSettingsPanel } from './src/components/LLMSettingsPanel';
 // import { parseFileWithPython, calculateMetricsWithPython } from './services/pythonBridge';
 import { runPythonAnalysis, updateTerminologyMapping } from './services/tauriBridge';
 // We still need metric definitions but calculation is now in Python sidecar via same call
@@ -41,6 +43,8 @@ function App() {
    * Document Context
    */
   const [rawDocumentContent, setRawDocumentContent] = useState<string>("");
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [fileType, setFileType] = useState<'pdf' | 'image' | 'text'>('text');
   const [generalQuery, setGeneralQuery] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [epsType, setEpsType] = useState<'basic' | 'diluted'>('diluted');
@@ -122,6 +126,13 @@ function App() {
       } else {
         document.documentElement.classList.remove('dark');
       }
+
+      // Apply Accent Color
+      if (settings.accentColor) {
+        document.documentElement.setAttribute('data-accent', settings.accentColor);
+      } else {
+        document.documentElement.setAttribute('data-accent', 'violet');
+      }
     };
 
     applyTheme();
@@ -133,13 +144,13 @@ function App() {
       mediaQuery.addEventListener('change', handler);
       return () => mediaQuery.removeEventListener('change', handler);
     }
-  }, [settings.theme]);
+  }, [settings.theme, settings.accentColor]);
 
 
   // Sync with Supabase (Basic Logic)
   useEffect(() => {
     const syncToSupabase = async () => {
-      if (settings.supabaseConfig.url && settings.supabaseConfig.key) {
+      if (settings?.supabaseConfig?.url && settings?.supabaseConfig?.key) {
         try {
           console.log("Attempting to sync settings and mappings to Supabase...", settings.supabaseConfig.url);
         } catch (e) {
@@ -322,6 +333,24 @@ function App() {
       status: 'Initializing...',
       startTime: Date.now()
     });
+
+    // Detect File Type & Set Asset URL
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'pdf') {
+      const url = convertFileSrc(filePath);
+      console.log("[Upload] Asset URL (PDF):", url);
+      setFileUrl(url);
+      setFileType('pdf');
+    } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext)) {
+      const url = convertFileSrc(filePath);
+      console.log("[Upload] Asset URL (Image):", url);
+      setFileUrl(url);
+      setFileType('image');
+    } else {
+      setFileUrl(null);
+      setFileType('text');
+    }
+
     console.log(`[Upload] Processing file via Tauri: ${filePath}, content: ${content ? content.length + ' chars' : 'none'}`);
 
     try {
@@ -613,6 +642,8 @@ function App() {
         </div>
       );
     }
+
+
     if (activeTab === 'captured') {
       // Merge missingInputs into tableData for display so they appear in the grid
       const mergedData = [...tableData];
@@ -643,24 +674,15 @@ function App() {
     }
     if (activeTab === 'document') {
       return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-100 dark:bg-slate-950">
-          <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-              Document Viewer
-            </h3>
-            {/* File Selector could go here if we tracked multiple files */}
-          </div>
-          <div className="flex-1 flex">
-            {/* Split View or Tabbed View could be implemented here */}
-            <DocumentViewer
-              content={rawDocumentContent}
-              title="Financial Document"
-              initialPage={documentPage}
-              className="flex-1 border-none rounded-none w-full h-full"
-              pdfUrl={""} // Pass empty string for now, enable real PDF URL when upload handling is updated
-            />
-            {/* Placeholder for Raw PDF Tab if we had the actual PDF blob */}
-          </div>
+        <div className="flex-1 flex flex-col overflow-hidden bg-gray-100 dark:bg-slate-950 min-h-0">
+          <DocumentViewer
+            content={rawDocumentContent}
+            title="File Viewer"
+            initialPage={documentPage}
+            className="flex-1 border-none rounded-none w-full h-full"
+            fileUrl={fileUrl || ""}
+            fileType={fileType}
+          />
         </div>
       );
     }
@@ -721,7 +743,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-200">
+    <div className="h-screen bg-gray-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-200 flex flex-col overflow-hidden">
       <Header
         onUploadClick={() => setIsUploadModalOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -729,7 +751,7 @@ function App() {
       />
 
       {/* Tab Navigation Area */}
-      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 pt-2">
+      <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-6 pt-2 flex-shrink-0">
         <div className="flex items-center gap-8">
           <button
             onClick={() => setActiveTab('extracted')}
@@ -757,14 +779,14 @@ function App() {
             className={`pb-3 text-sm font-medium flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'document' ? 'text-blue-700 dark:text-blue-400 border-blue-700 dark:border-blue-400' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             <FileText className="w-4 h-4" />
-            Document Viewer
+            File Viewer
           </button>
         </div>
       </div>
 
-      <main className="flex flex-1 overflow-hidden" style={{ maxHeight: 'calc(100vh - 130px)' }}>
+      <main className="flex-1 flex overflow-hidden relative">
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col relative pb-20 overflow-auto">
+        <div className="flex-1 flex flex-col relative overflow-hidden">
 
           {/* AI Insight Overlay */}
           {aiInsight && settings.enableAI && (

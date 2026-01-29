@@ -1,4 +1,3 @@
-
 # General
 .DS_Store
 .AppleDouble
@@ -80,3 +79,9 @@ dev_server_restart.log
 local_db/
 uploads/
 /brain/
+
+# AI / LLM Context Files
+gemini.md
+context.md
+chat.md
+prompt.md

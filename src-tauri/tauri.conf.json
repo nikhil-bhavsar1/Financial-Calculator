@@ -1,7 +1,7 @@
 {
     "identifier": "com.financial.calculator",
     "build": {
-        "beforeDevCommand": "",
+        "beforeDevCommand": "npm run dev",
         "beforeBuildCommand": "npm run build",
         "devUrl": "http://localhost:1420",
         "frontendDist": "../dist"
