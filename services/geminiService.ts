@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { AppSettings, FinancialItem } from "../types";
-import { searchRAG } from "./pythonBridge";
+import { searchRAG } from "./tauriBridge";
 
 export const callAiProvider = async (
   prompt: string,
@@ -10,7 +10,14 @@ export const callAiProvider = async (
   complexity: 'fast' | 'standard' | 'thinking' = 'standard'
 ): Promise<string> => {
 
-  const { aiProvider, apiKeys, modelName } = settings;
+  const { aiProvider, apiKeys, modelName, llm } = settings;
+
+  // Safe access to LLM settings with defaults
+  const llmSettings = llm || {
+    selected_model: '',
+    context_window: 4096,
+    temperature: 0.7
+  };
 
   // Construct context string
   let contextBlock = "";
@@ -43,14 +50,17 @@ export const callAiProvider = async (
     contextBlock += `\n[EXTRACTED METRICS SUMMARY]\n${dataSummary}\n`;
   }
 
-  // 3. Add Full Document Text Context (Truncated if extremely large, but used if RAG didn't find much or for redundancy)
+  // 3. Add Full Document Text Context (Truncated based on provider limits)
   if (documentText) {
-    // If we have good RAG chunks, we might truncate full text more aggressively to save tokens,
-    // but for Gemini 1.5/3 with huge context, we can afford both usually.
-    // We'll keep it for now.
-    const cleanText = documentText.slice(0, 100000);
+    // Provider-specific limits to stay within token/TPM limits (e.g. Groq 12k TPM)
+    // 1 char ~= 0.25-0.3 tokens. 
+    // Groq: 15k chars (~4-5k tokens) is safe for 12k TPM limits.
+    // Gemini/OpenAI/Other: 100k chars is fine for their much larger contexts.
+    const maxChars = settings.aiProvider === 'groq' ? 15000 : 100000;
+
+    const cleanText = documentText.slice(0, maxChars);
     if (ragChunks.length === 0) {
-      contextBlock += `\n[FULL DOCUMENT CONTENT START]\n${cleanText}\n[FULL DOCUMENT CONTENT END]\n`;
+      contextBlock += `\n[DOCUMENT TEXT SNIPPET (First ${maxChars} chars)]\n${cleanText}\n[END SNIPPET]\n`;
     } else {
       // If RAG active, maybe provide less full text or rely on RAG? 
       // User requested "NotebookLM like", which often uses FULL context.
@@ -90,18 +100,26 @@ export const callAiProvider = async (
         const geminiKey = apiKeys.gemini || process.env.API_KEY;
         if (!geminiKey) return "Please configure the Gemini API key in Settings.";
 
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const ai = new GoogleGenAI({
+          apiKey: geminiKey,
+          // Force v1 API to avoid v1beta 404 for gemini-1.5-flash
+          //@ts-ignore - Some versions of the SDK might not have this in types but support it in options
+          apiVersion: 'v1'
+        });
 
-        let model = modelName || 'gemini-1.5-flash'; // Standard latest
-        let config: any = {};
+        // Default to selection, fallback to standard
+        let model = modelName || 'gemini-1.5-flash';
 
-        // Gemini specific feature mapping
-        if (complexity === 'fast') {
+        // Complexity overrides:
+        // 'thinking' always forces the thinking model regardless of base selection
+        // 'fast' forces flash if no selection or if selection is a 'pro' model
+        if (complexity === 'thinking') {
+          model = 'gemini-2.0-flash-thinking-exp-1219';
+        } else if (complexity === 'fast' && (!modelName || modelName.includes('pro'))) {
           model = 'gemini-1.5-flash';
-        } else if (complexity === 'thinking') {
-          model = 'gemini-2.0-flash-thinking-exp-1219'; // Use latest experimental thinking
-          // No extended config needed for basic usage, prompts handle it
         }
+
+        let config: any = {};
 
         const response = await ai.models.generateContent({
           model: model,
@@ -126,8 +144,8 @@ export const callAiProvider = async (
           baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
           if (!targetModel) {
             // Groq Model Selection based on Complexity
-            if (complexity === 'fast') targetModel = 'llama3-8b-8192';
-            else targetModel = 'llama3-70b-8192';
+            if (complexity === 'fast') targetModel = 'llama-3.1-8b-instant';
+            else targetModel = 'llama-3.3-70b-versatile';
           }
         }
 
@@ -172,6 +190,23 @@ export const callAiProvider = async (
 
         const data = await completionReq.json();
         return data.choices?.[0]?.message?.content || "No response content.";
+
+      case 'local_llm':
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const result = await invoke('generate_completion', {
+            prompt: fullPrompt,
+            model: llmSettings.selected_model,
+            context: [] // We can implement conversation history later if needed
+          });
+          // The rust command returns the full string or dict? Assuming string based on command name
+          // If it returns { response: string }, we need to parse it. 
+          // Checking backend signature: returns String.
+          return result as string;
+        } catch (e: any) {
+          console.error("Local LLM Invoke Error:", e);
+          return `Local LLM Error: ${e.message || e}`;
+        }
 
       default:
         return "Unsupported AI Provider.";

@@ -227,13 +227,30 @@ export async function runPythonAnalysis(
     } = options;
 
     // WEB FALLBACK: Check if running in browser (non-Tauri) environment
+    // Check if running in browser (non-Tauri) OR if local server is available
     // @ts-ignore
     const isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
 
-    if (!isTauri) {
-        console.log("[TauriBridge] Web environment detected, using HTTP fetch...");
+    // Always try to use the persistent server first (preserves RAG state)
+    let useServer = !isTauri;
+    if (isTauri) {
         try {
-            const response = await fetch('/api/parse', {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 500);
+            const health = await fetch('http://localhost:8765/health', { signal: controller.signal });
+            clearTimeout(id);
+            if (health.ok) useServer = true;
+        } catch (e) {
+            // Server not running, fall back to spawn 
+        }
+    }
+
+    if (useServer) {
+        const apiUrl = isTauri ? 'http://localhost:8765/api/parse' : '/api/parse';
+        console.log(`[TauriBridge] Using Server at ${apiUrl}`);
+
+        try {
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -250,21 +267,37 @@ export async function runPythonAnalysis(
 
             const result = await response.json();
 
-            // Map API response to expected bridge format
-            // API returns: { status, extractedData, metadata, metrics }
+            // Map API response from python/api.py to the shape the React app expects.
+            // Backend returns a rich object: { items, text, metadata, ... }.
+            // The UI expects: response.extractedData.{ items, text }.
+            const items = Array.isArray(result.items) ? result.items : [];
+            const text = typeof result.text === 'string' ? result.text : '';
+
             return {
                 status: "success",
-                extractedData: result.extractedData || result.items || [],
-                metadata: result.metadata || { fileName: fileName || 'document' },
+                extractedData: {
+                    items,
+                    text,
+                    // Pass through any additional structured fields when present
+                    pages: result.pages,
+                    tables: result.tables,
+                    sections: result.sections,
+                    financialData: result.financialData,
+                },
+                metadata: result.metadata || { fileName: fileName || 'document', fileType: 'pdf', pageCount: result.metadata?.totalPages ?? 0 },
                 metrics: result.metrics || {},
-                message: "Processed via Web API"
+                message: "Processed via Server API"
             };
         } catch (e) {
-            console.error("[TauriBridge] Web API error:", e);
-            return {
-                status: "error",
-                message: e instanceof Error ? e.message : String(e)
-            };
+            console.error("[TauriBridge] Server API error:", e);
+            if (!isTauri) {
+                return {
+                    status: "error",
+                    message: e instanceof Error ? e.message : String(e)
+                };
+            }
+            // If in Tauri and server failed, fall through to spawn
+            console.log("[TauriBridge] Falling back to spawned process...");
         }
     }
 
@@ -299,15 +332,24 @@ export async function runPythonAnalysis(
             }
         };
 
-        const safeResolve = async (response: PythonResponse) => {
+        const safeResolve = async (response: any) => {
             if (resolved) return;
             resolved = true;
             await cleanup();
 
+            // Normalise sidecar responses from python/api.py, which use `{ status, data: {...} }`
+            // into the shape the React app expects: `response.extractedData`.
+            if (response && typeof response === 'object') {
+                const r: any = response;
+                if (r.status === 'success' && r.data && !r.extractedData) {
+                    r.extractedData = r.data;
+                }
+            }
+
             const elapsed = Date.now() - startTime;
             console.log(`[TauriBridge] ✓ Resolved with status: ${response.status} (${elapsed}ms)`);
 
-            resolve(sanitizeResponse(response));
+            resolve(sanitizeResponse(response as PythonResponse));
         };
 
         const safeReject = async (error: Error) => {
@@ -736,4 +778,41 @@ export function formatProgressForDisplay(progress: ProgressUpdate): ProgressDisp
         eta,
         status: progress.currentSection ?? `Processing page ${progress.currentPage}...`
     };
+}
+
+// ============================================================================
+// RAG SEARCH
+// ============================================================================
+
+export async function searchRAG(query: string): Promise<any[]> {
+    console.log('[TauriBridge] Searching RAG:', query);
+    try {
+        // Try HTTP Server
+        const response = await fetch('http://localhost:8765/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            // result is { status: "success", data: { results: [...] } } or { results: ... } depending on implementation
+            // The API implementation returns: { results: json.loads(...) } directly inside 'data' wrapper if via sidecar, 
+            // but Flask 'return jsonify(result)' where result = {"results": ...} 
+
+            // Wait, Flask endpoint returns jsonify(result).
+            // backend service search_rag returns: {"results": [...]}
+            // So response body is {"results": [...]}
+
+            if (result.results) {
+                return result.results;
+            }
+            if (result.data && result.data.results) {
+                return result.data.results;
+            }
+        }
+    } catch (e) {
+        console.warn('[TauriBridge] RAG search failed usually means server not running or docs not indexed:', e);
+    }
+    return [];
 }

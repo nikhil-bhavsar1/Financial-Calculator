@@ -38,16 +38,33 @@ export enum InputStatus {
 export interface MissingInputItem {
   id: string;
   label: string;
-  value: string;
-  targetYear?: 'current' | 'previous'; // User-specified time period for this input
+  value: string; // Legacy/Single value
+  targetYear?: 'current' | 'previous'; // Legacy target
+  values?: {
+    current: string;
+    previous: string;
+  };
   status: InputStatus;
   confidence?: number;
 }
 
-export type AiProvider = 'gemini' | 'groq' | 'openai' | 'openrouter' | 'opencode';
+export type AiProvider = 'gemini' | 'groq' | 'openai' | 'openrouter' | 'opencode' | 'local_llm';
+
+export interface LLMSettings {
+  ollama_host: string;
+  ollama_port: number;
+  selected_model: string;
+  context_window: number;
+  temperature: number;
+  top_p: number;
+  system_prompt: string;
+  seed?: number | null;
+  keep_alive: string;
+  num_gpu: number;
+}
 
 export interface AppSettings {
-  theme: 'light' | 'dark';
+  theme: 'light' | 'dark' | 'system';
   accentColor: 'violet' | 'sapphire' | 'emerald' | 'gold' | 'rose' | 'platinum';
   enableAI: boolean;
   aiProvider: AiProvider;
@@ -59,6 +76,19 @@ export interface AppSettings {
     opencode: string;
   };
   modelName: string;
+  // Local LLM Specific Settings
+  llm: {
+    ollama_host: string;
+    ollama_port: number;
+    selected_model: string;
+    context_window: number;
+    temperature: number;
+    top_p: number;
+    system_prompt: string;
+    seed?: number | null;
+    keep_alive: string;
+    num_gpu: number;
+  };
   supabaseConfig: {
     url: string;
     key: string;

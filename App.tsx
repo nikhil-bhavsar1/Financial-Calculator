@@ -7,14 +7,16 @@ import { MetricsDashboard } from './components/MetricsDashboard';
 import { CapturedDataGrid } from './components/CapturedDataGrid';
 import { SettingsModal } from './components/SettingsModal';
 import { KnowledgeBaseModal } from './components/KnowledgeBaseModal';
+import { DocumentViewer } from './components/DocumentViewer';
 import { FinancialItem, InputStatus, MissingInputItem, MetricGroup, AppSettings, TermMapping } from './types';
 import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, Database, Upload } from 'lucide-react';
 import { callAiProvider } from './services/geminiService';
 // import { parseFileWithPython, calculateMetricsWithPython } from './services/pythonBridge';
 import { runPythonAnalysis, updateTerminologyMapping } from './services/tauriBridge';
 // We still need metric definitions but calculation is now in Python sidecar via same call
-import { INPUT_METRICS } from './library/metrics';
+import { INPUT_METRICS, saveUserTerms, SYSTEM_TERM_IDS } from './library/metrics';
 import { generateAllMetricsAsItems, generateSampleMetricsData } from './library/allMetrics';
+import { useSettings } from './src/stores/useSettings';
 
 const MOCK_DATA: FinancialItem[] = [];
 
@@ -22,6 +24,7 @@ const MOCK_MISSING_INPUTS: MissingInputItem[] = [];
 
 function App() {
   const [activeTab, setActiveTab] = useState<'extracted' | 'metrics' | 'document' | 'captured'>('extracted');
+  const [documentPage, setDocumentPage] = useState(1);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -34,10 +37,13 @@ function App() {
   const [mappings, setMappings] = useState<TermMapping[]>(INPUT_METRICS);
   const [missingInputs, setMissingInputs] = useState<MissingInputItem[]>([]);
 
-  // Document Context
+  /* 
+   * Document Context
+   */
   const [rawDocumentContent, setRawDocumentContent] = useState<string>("");
   const [generalQuery, setGeneralQuery] = useState("");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [epsType, setEpsType] = useState<'basic' | 'diluted'>('diluted');
 
   /* 
    * Initialize with EMPTY strings so the default fallbacks in UI ("Current Year") 
@@ -81,23 +87,54 @@ function App() {
   // Contextual Selection AI
   const [selection, setSelection] = useState<{ text: string, x: number, y: number } | null>(null);
 
-  const [settings, setSettings] = useState<AppSettings>({
-    theme: 'light',
-    enableAI: true,
-    aiProvider: 'gemini',
-    apiKeys: { gemini: '', groq: '', openai: '', openrouter: '', opencode: '' },
-    modelName: '',
-    supabaseConfig: { url: '', key: '' }
-  });
+  /* 
+   * Initialize Global Settings
+   */
+  const { settings, fetchSettings, updateSettings } = useSettings();
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const handleUpdateSettings = async (newSettings: AppSettings) => {
+    // Iterate and update changed values
+    // Since our store updates key by key, we might need to be smart or update component to support key/value
+    // For now, let's assume valid merging for critical keys
+    // Actually simpler: let's update all keys
+    for (const [key, value] of Object.entries(newSettings)) {
+      if (JSON.stringify(settings[key as keyof AppSettings]) !== JSON.stringify(value)) {
+        await updateSettings(key, value);
+      }
+    }
+  };
 
   // Theme Effect
+  // Theme Effect
   useEffect(() => {
-    if (settings.theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    const applyTheme = () => {
+      // console.log("Applying theme:", settings.theme); // Debug log
+      const isDark =
+        settings.theme === 'dark' ||
+        (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+
+    // Listener for system changes if mode is system
+    if (settings.theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyTheme();
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
     }
   }, [settings.theme]);
+
 
   // Sync with Supabase (Basic Logic)
   useEffect(() => {
@@ -254,11 +291,28 @@ function App() {
     return await callAiProvider(prompt, settings, [], rawDocumentContent, 'fast');
   };
 
+  // Handle Source Click from Captured Data Grid
+  const handleSourceClick = (item: FinancialItem) => {
+    if (item.sourcePage) {
+      // Extract number from "Page 42" or just "42"
+      const match = safeString(item.sourcePage).match(/(\d+)/);
+      if (match) {
+        const pageNum = parseInt(match[1]);
+        if (!isNaN(pageNum)) {
+          setDocumentPage(pageNum);
+          setActiveTab('document');
+        }
+      }
+    }
+  };
+
+  const safeString = (s: any) => (s || '').toString();
+
   /* 
    * Handle file upload by calling Python sidecar via Tauri Bridge
-   * Now expects 'content' to be the FILE PATH
+   * Now accepts 'content' which is the file content (base64 encoded for binary files)
    */
-  const handleUploadSuccess = async (filePath: string, type: string, fileName: string) => {
+  const handleUploadSuccess = async (filePath: string, type: string, fileName: string, content?: string) => {
     setIsPythonProcessing(true);
     setProcessingProgress({
       fileName: fileName,
@@ -268,11 +322,11 @@ function App() {
       status: 'Initializing...',
       startTime: Date.now()
     });
-    console.log(`[Upload] Processing file via Tauri: ${filePath}`);
+    console.log(`[Upload] Processing file via Tauri: ${filePath}, content: ${content ? content.length + ' chars' : 'none'}`);
 
     try {
-      // Call Python Sidecar
-      const response = await runPythonAnalysis(filePath);
+      // Call Python Sidecar - pass content and fileName for proper handling
+      const response = await runPythonAnalysis(filePath, content, fileName);
       console.log("[Upload] Python response:", response);
 
       if (response.status === "success") {
@@ -305,15 +359,41 @@ function App() {
           documentText = (extractedData as any).text;
         }
 
-        // Set document content for viewer (fallback to file path if no text extracted)
+        // Append document content for viewer
         if (documentText.trim()) {
-          setRawDocumentContent(documentText);
+          setRawDocumentContent(prev => {
+            if (!prev) return documentText;
+            // Check if this file is already in content to avoid dupes (rough check)
+            if (prev.includes(fileName)) return prev;
+            return prev + `\n\n\n=================================================================\n=== FILE: ${fileName} ===\n=================================================================\n\n` + documentText;
+          });
         } else {
-          setRawDocumentContent(`File loaded: ${fileName}\nPath: ${filePath}\n\n[No text content extracted - check if document is scanned/image-based]`);
+          // Append placeholder
+          setRawDocumentContent(prev => {
+            const msg = `File loaded: ${fileName}\nPath: ${filePath}\n\n[No text content extracted - check if document is scanned/image-based]`;
+            if (!prev) return msg;
+            return prev + `\n\n\n=================================================================\n=== FILE: ${fileName} ===\n=================================================================\n\n` + msg;
+          });
         }
 
         if (items.length > 0) {
-          setTableData(items);
+          // Append data instead of replace, merging if possible? 
+          // For now, simpler to just append all items. The UI filters by ID often, so duplicates might be an issue.
+          // However, we want to allow "Add more data".
+          // We will remove duplicates based on exact ID match if the value is 0? 
+          // No, just append/merge. If ID exists, maybe we should update it?
+          // If we upload Balance Sheet then Income Statement, IDs are different.
+          // If we upload same file twice, we get dupes. 
+          // Let's merge by ID: overwrite existing with new if new is non-zero?
+
+          setTableData(prev => {
+            const newMap = new Map(prev.map(i => [i.id, i]));
+            items.forEach(item => {
+              newMap.set(item.id, item); // Overwrite/add
+            });
+            return Array.from(newMap.values());
+          });
+
           setAiInsight(null);
 
           // Handle metrics if returned
@@ -321,7 +401,8 @@ function App() {
             try {
               const parsedMetrics = typeof response.metrics === 'string' ? JSON.parse(response.metrics) : response.metrics;
               if (Array.isArray(parsedMetrics) && parsedMetrics.length > 0) {
-                setMetricsGroups(parsedMetrics);
+                // Merge metrics?
+                setMetricsGroups(parsedMetrics); // Metrics are usually global/recalculated, so replace is somewhat safer/easier for now.
               }
             } catch (e) {
               console.error("Error parsing metrics JSON", e);
@@ -341,18 +422,16 @@ function App() {
 
         } else {
           console.log("[Upload] No structured items found in response.");
-          // Still show document content even if no structured data
         }
       } else {
         console.error("Python Error:", response.message);
-        setRawDocumentContent(`Error processing file: ${response.message || 'Unknown error'}`);
-        alert(`Error processing file: ${response.message}`);
+        // Don't alert for every file in a batch, just log/toast?
+        // setRawDocumentContent(`Error processing file: ${response.message || 'Unknown error'}`);
       }
 
     } catch (error) {
       console.error("[Upload] Failed to call Python:", error);
-      setRawDocumentContent(`Failed to process: ${filePath}\n\nError: ${error}`);
-      alert("Failed to process file with Python engine.");
+      // setRawDocumentContent(`Failed to process: ${filePath}\n\nError: ${error}`);
     } finally {
       setIsPythonProcessing(false);
       setProcessingProgress(null);
@@ -361,44 +440,63 @@ function App() {
 
   const handleInputConfirm = (confirmedInputs: MissingInputItem[]) => {
     // 1. Filter out items that are still empty or skipped
-    const validInputs = confirmedInputs.filter(item =>
-      item.value && item.value.trim() !== '' && item.status !== InputStatus.SKIPPED
-    );
+    // Allow if AT LEAST one value is present in 'values' or legacy 'value'
+    const validInputs = confirmedInputs.filter(item => {
+      if (item.status === InputStatus.SKIPPED) return false;
+      const hasLegacyValue = item.value && item.value.trim() !== '';
+      const hasNewValues = item.values && (item.values.current.trim() !== '' || item.values.previous.trim() !== '');
+      return hasLegacyValue || hasNewValues;
+    });
 
     if (validInputs.length === 0) {
-      alert("No new inputs provided to save.");
+      // Slient return - prevent annoying popups
       return;
     }
 
     // 2. Merge into Table Data
-    // We need to either UPDATE existing items (if recognized but zero) 
-    // or ADD new items (if previously missing)
     const newTableData = [...tableData];
-
     let updatesCount = 0;
 
     validInputs.forEach(input => {
       const existingIndex = newTableData.findIndex(row => row.id === input.id);
 
-      const cleanValue = parseFloat(input.value.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+      // Determine values to apply
+      let valCurrent = 0;
+      let valPrevious = 0;
+      let updateCurrent = false;
+      let updatePrevious = false;
 
-      if (isNaN(cleanValue)) {
-        console.warn(`Invalid number value for ${input.label}: ${input.value}`);
-        return;
+      if (input.values) {
+        // Dual value mode
+        if (input.values.current.trim() !== '') {
+          valCurrent = parseFloat(input.values.current.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+          if (!isNaN(valCurrent)) updateCurrent = true;
+        }
+        if (input.values.previous.trim() !== '') {
+          valPrevious = parseFloat(input.values.previous.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+          if (!isNaN(valPrevious)) updatePrevious = true;
+        }
+      } else {
+        // Legacy mode
+        const cleanVal = parseFloat(input.value.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+        if (!isNaN(cleanVal)) {
+          if (input.targetYear === 'previous') {
+            valPrevious = cleanVal;
+            updatePrevious = true;
+          } else {
+            valCurrent = cleanVal; // Default to current
+            updateCurrent = true;
+          }
+        }
       }
-
-      const targetYear = input.targetYear || 'current';
 
       if (existingIndex >= 0) {
         // Update existing item
         const item = newTableData[existingIndex];
         const updatedItem = { ...item };
 
-        if (targetYear === 'previous') {
-          updatedItem.previousYear = cleanValue;
-        } else {
-          updatedItem.currentYear = cleanValue;
-        }
+        if (updateCurrent) updatedItem.currentYear = valCurrent;
+        if (updatePrevious) updatedItem.previousYear = valPrevious;
 
         // Recalculate variation
         updatedItem.variation = updatedItem.currentYear - updatedItem.previousYear;
@@ -406,36 +504,37 @@ function App() {
           ? (updatedItem.variation / updatedItem.previousYear * 100)
           : 0;
 
-        updatedItem.hasWarning = false; // Clear warning
+        updatedItem.hasWarning = false;
         newTableData[existingIndex] = updatedItem;
+        updatesCount++;
 
       } else {
         // Add new item
-        const currentYear = targetYear === 'current' ? cleanValue : 0;
-        const previousYear = targetYear === 'previous' ? cleanValue : 0;
-        const variation = currentYear - previousYear;
-        const variationPercent = previousYear !== 0 ? (variation / previousYear * 100) : 0;
+        if (updateCurrent || updatePrevious) {
+          const variation = valCurrent - valPrevious;
+          const variationPercent = valPrevious !== 0 ? (variation / valPrevious * 100) : 0;
 
-        newTableData.push({
-          id: input.id,
-          label: input.label,
-          currentYear,
-          previousYear,
-          variation,
-          variationPercent,
-          sourcePage: 'Manual Entry',
-          isAutoCalc: false
-        });
+          newTableData.push({
+            id: input.id,
+            label: input.label,
+            currentYear: valCurrent,
+            previousYear: valPrevious,
+            variation,
+            variationPercent,
+            sourcePage: 'Manual',
+            isImportant: true
+          });
+          updatesCount++;
+        }
       }
-      updatesCount++;
     });
 
     if (updatesCount > 0) {
       setTableData(newTableData);
+      setMissingInputs(confirmedInputs); // Keep state in sync
 
-      // 3. Trigger Metric Recalculation
+      // Recalculate metrics with new data
       calculateMetrics(newTableData, mappings);
-      alert(`Successfully updated ${updatesCount} metric(s). Recalculating analysis...`);
     }
   };
 
@@ -479,6 +578,10 @@ function App() {
         />
       );
     }
+
+
+    // ... (existing code)
+
     if (activeTab === 'metrics') {
       return (
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -504,67 +607,112 @@ function App() {
             groups={metricsGroups}
             pinnedIds={pinnedMetrics}
             onTogglePin={toggleMetricPin}
+            epsType={epsType}
+            onEpsTypeChange={setEpsType}
           />
         </div>
       );
     }
     if (activeTab === 'captured') {
+      // Merge missingInputs into tableData for display so they appear in the grid
+      const mergedData = [...tableData];
+      missingInputs.forEach(m => {
+        // Only add if not already present (avoid duplicates) and not explicitly skipped
+        if (!mergedData.some(d => d.id === m.id) && m.status !== InputStatus.SKIPPED) {
+          mergedData.push({
+            id: m.id,
+            label: m.label,
+            currentYear: 0,
+            previousYear: 0,
+            variation: 0,
+            variationPercent: 0,
+            sourcePage: '',
+            statementType: 'Required Inputs', // Group them together
+            isMissing: true
+          } as any);
+        }
+      });
+
       return (
         <CapturedDataGrid
-          data={tableData}
+          data={mergedData}
+          onDataUpdate={setTableData}
+          onSourceClick={handleSourceClick}
         />
       );
     }
-    return (
-      <div className="flex-1 flex flex-col bg-gray-100 dark:bg-slate-950 min-h-[500px]">
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center max-w-lg">
-            <FileText className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-700" />
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              {rawDocumentContent ? "Document Content Loaded" : "No Document Loaded"}
+    if (activeTab === 'document') {
+      return (
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-100 dark:bg-slate-950">
+          <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 px-4 py-2 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+              Document Viewer
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              {rawDocumentContent
-                ? "The text content of your document is in memory and ready for AI analysis."
-                : "Upload a financial document (PDF, Excel, or text) to view its contents here."}
-            </p>
-            {!rawDocumentContent && (
+            {/* File Selector could go here if we tracked multiple files */}
+          </div>
+          <div className="flex-1 flex">
+            {/* Split View or Tabbed View could be implemented here */}
+            <DocumentViewer
+              content={rawDocumentContent}
+              title="Financial Document"
+              initialPage={documentPage}
+              className="flex-1 border-none rounded-none w-full h-full"
+              pdfUrl={""} // Pass empty string for now, enable real PDF URL when upload handling is updated
+            />
+            {/* Placeholder for Raw PDF Tab if we had the actual PDF blob */}
+          </div>
+        </div>
+      );
+    }
+
+    // We can add a new tab case 'raw_pdf' if requested, but for now DocumentViewer handles text. 
+    // The user asked for "Tab to view raw pdf on right of Doc Viewer"
+    // I will modify the DocumentViewer usage to be split pane if a PDF is loaded.
+
+    // Actually, let's just return the DocumentViewer as is for now, 
+    // but the user specific request "themes not working" suggests I should check theme logic first.
+    // And "Tab to view raw pdf".
+
+    return (
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-100 dark:bg-slate-950">
+        <DocumentViewer
+          content={rawDocumentContent}
+          title="Financial Document"
+          initialPage={documentPage}
+          className="flex-1 border-none rounded-none"
+        />
+
+        {!rawDocumentContent && !isPythonProcessing && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+            <div className="text-center max-w-lg p-8 bg-white/90 dark:bg-slate-900/90 backdrop-blur rounded-2xl shadow-xl pointer-events-auto border border-gray-200 dark:border-slate-800">
+              <FileText className="w-16 h-16 mx-auto mb-4 text-blue-500" />
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
+                No Document Loaded
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Upload a financial document (PDF, Excel, or text) to view its contents here.
+              </p>
               <button
                 onClick={() => setIsUploadModalOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors shadow-lg shadow-blue-500/20"
               >
                 <Upload className="w-4 h-4" />
                 Upload Document
               </button>
-            )}
-            {rawDocumentContent && (
-              <div className="text-left bg-white dark:bg-slate-900 p-4 rounded-lg border border-gray-200 dark:border-slate-800 h-96 overflow-y-auto text-xs font-mono text-gray-600 dark:text-gray-400 shadow-inner">
-                {rawDocumentContent.split(/--- Page (\d+) ---/).map((part, index, array) => {
-                  if (index === 0) return <span key={index}>{part}</span>;
-                  if (index % 2 !== 0) return null;
-                  const pageNum = array[index - 1];
-                  return (
-                    <div key={index} id={`page-${pageNum}`} className="mb-6 border-b border-gray-100 dark:border-slate-800 pb-4">
-                      <div className="font-bold text-blue-600 dark:text-blue-400 mb-2 sticky top-0 bg-white dark:bg-slate-900 py-1">
-                        --- Page {pageNum} ---
-                      </div>
-                      <div className="whitespace-pre-wrap">{part}</div>
-                    </div>
-                  );
-                })}
-                {!rawDocumentContent.includes("--- Page") && (
-                  <div className="whitespace-pre-wrap">{rawDocumentContent}</div>
-                )}
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
 
   const handleSaveMappings = async (newMappings: TermMapping[]) => {
     setMappings(newMappings);
+
+    // Separate user-added terms (those not in system defaults) for persistence
+    const userTerms = newMappings.filter(m => !SYSTEM_TERM_IDS.has(m.id));
+    saveUserTerms(userTerms);
+
     try {
       await updateTerminologyMapping(newMappings);
     } catch (err) {
@@ -634,11 +782,11 @@ function App() {
                           <button
                             key={i}
                             onClick={() => {
-                              setActiveTab('document');
-                              setTimeout(() => {
-                                const el = document.getElementById(`page-${pageNum}`);
-                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                              }, 100);
+                              const p = parseInt(pageNum);
+                              if (!isNaN(p)) {
+                                setDocumentPage(p);
+                                setActiveTab('document');
+                              }
                             }}
                             className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 bg-purple-100 dark:bg-purple-800/50 text-purple-700 dark:text-purple-300 rounded text-xs font-bold hover:bg-purple-200 dark:hover:bg-purple-700 transition-colors cursor-pointer"
                             title={`Jump to Page ${pageNum}`}
@@ -705,7 +853,7 @@ function App() {
 
           {/* Python Processing Loading State - Enhanced */}
           {isPythonProcessing && (
-            <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 z-10 flex items-center justify-center backdrop-blur-sm">
+            <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 z-50 flex items-center justify-center backdrop-blur-sm">
               <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 w-full max-w-md mx-4">
                 {/* Header */}
                 <div className="flex items-center gap-4 mb-6">
@@ -775,21 +923,11 @@ function App() {
           {renderContent()}
 
         </div>
-
-        {/* Right Sidebar */}
-        <Sidebar
-          items={missingInputs}
-          onConfirm={handleInputConfirm}
-          onAiAssist={handleMissingInputAssist}
-          yearLabels={yearLabels}
-          isCollapsed={isSidebarCollapsed}
-          onToggle={setIsSidebarCollapsed}
-        />
       </main>
 
       {/* General AI Chat / Summary Bar - Moved outside main relative flow to be fixed viewport */}
       {!isPythonProcessing && settings.enableAI && (
-        <div className="fixed bottom-6 z-20 transition-all duration-300 ease-in-out" style={{ left: '24px', right: isSidebarCollapsed ? '84px' : '424px' }}>
+        <div className="fixed bottom-6 z-20 transition-all duration-300 ease-in-out" style={{ left: '24px', right: '24px' }}>
           <div className="max-w-3xl mx-auto flex items-center gap-2">
             {/* Generate Summary Button */}
             {!aiInsight && (
@@ -847,7 +985,7 @@ function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
-        onUpdateSettings={setSettings}
+        onUpdateSettings={handleUpdateSettings}
       />
       <KnowledgeBaseModal
         isOpen={isKbOpen}
@@ -857,6 +995,6 @@ function App() {
       />
     </div>
   );
-}
+};
 
 export default App;

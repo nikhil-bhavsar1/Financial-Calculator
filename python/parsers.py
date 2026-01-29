@@ -2,6 +2,7 @@
 from typing import Optional, Dict, List, Any, Set, Tuple
 import logging
 import json
+import sys
 import re
 from pathlib import Path
 from collections import defaultdict
@@ -26,6 +27,7 @@ from parser_config import (
     ValidationIssue, ValidationSeverity, clean_text, safe_float, 
     PYMUPDF_AVAILABLE, PANDAS_AVAILABLE, OCRResult
 )
+from markdown_converter import MarkdownConverter
 from parser_financial_stmt_detection import FinancialStatementDetector, FinancialPatternMatcher
 from parser_table_extraction import TableExtractor
 from parser_financial_keyword_db import FinancialKeywords
@@ -76,6 +78,8 @@ class FinancialParser:
         self.detector = FinancialStatementDetector(self.config)
         self.table_extractor = TableExtractor(self.config)
         self.keywords = FinancialKeywords()
+        # Initialize Markdown Converter
+        self.markdown_converter = MarkdownConverter()
         
         # OCR processor (lazy initialization)
         self._ocr_processor: Optional[OCRProcessor] = None
@@ -95,6 +99,8 @@ class FinancialParser:
         self._seen_ids: Set[str] = set()
         self._current_entity: ReportingEntity = ReportingEntity.UNKNOWN
         self._validation_issues: List[ValidationIssue] = []
+        # Cache for converted pages to avoid re-conversion
+        self.markdown_cache: Dict[int, str] = {}
     
     @property
     def ocr_processor(self) -> Optional[OCRProcessor]:
@@ -149,6 +155,8 @@ class FinancialParser:
                 result = self._parse_excel(file_path)
             elif file_type in ('csv', 'txt'):
                 result = self._parse_text_file(file_path)
+            elif file_type in ('md', 'markdown'):
+                result = self._parse_markdown_file(file_path)
             elif file_type in ('xml', 'xbrl'):
                 result = self._parse_xbrl(file_path)
             else:
@@ -269,10 +277,39 @@ class FinancialParser:
             
             result["items"] = all_items
             
+            # Collect ALL raw text from the document (native + OCR)
+            # This ensures users can see the extracted content even if no structured data was found
+            all_text_parts = []
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                page_text = self._get_page_text(page, page_num, ocr_page_map)
+                if page_text.strip():
+                    all_text_parts.append(f"--- Page {page_num + 1} ---\n{page_text}")
+            
+            result["text"] = "\n\n".join(all_text_parts)
+            
             # Build metadata
             result["metadata"].update(
                 self._build_metadata(doc, statement_map, ocr_page_map)
             )
+            
+            # Add OCR status to metadata
+            if ocr_page_map:
+                ocr_stats = {
+                    "pages_ocr_processed": len(ocr_page_map),
+                    "total_chars_extracted": sum(len(r.text) for r in ocr_page_map.values()),
+                    "avg_confidence": sum(r.confidence for r in ocr_page_map.values()) / len(ocr_page_map) if ocr_page_map else 0,
+                    "engine": list(ocr_page_map.values())[0].method if ocr_page_map else "none"
+                }
+                result["metadata"]["ocr_status"] = ocr_stats
+                
+                # Warn if OCR quality is poor
+                if ocr_stats["avg_confidence"] < 30:
+                    result["metadata"]["warning"] = (
+                        f"Low OCR confidence ({ocr_stats['avg_confidence']:.1f}%). "
+                        "Document may be heavily formatted, watermarked, or low quality. "
+                        "Consider using a cleaner scan."
+                    )
             
             doc.close()
             
@@ -325,17 +362,28 @@ class FinancialParser:
         page_num: int,
         ocr_map: Dict[int, OCRResult]
     ) -> str:
-        """Get text from page, using OCR result if available."""
+        """Get text from page, using Markdown Conversion or OCR result."""
+        
+        # 1. Check Cache
+        if page_num in self.markdown_cache:
+            return self.markdown_cache[page_num]
+
+        # 2. Check OCR
         if page_num in ocr_map:
             ocr_result = ocr_map[page_num]
             if ocr_result.is_successful:
                 return ocr_result.text
         
+        # 3. Convert PDF Page to Markdown (Now Primary Extraction Method)
+        # This ensures all table/structure logic is unified in MarkdownConverter
         try:
-            return page.get_text("text")
+            md_text = self.markdown_converter.convert_page(page, page_num)
+            self.markdown_cache[page_num] = md_text
+            return md_text
         except Exception as e:
-            logger.debug(f"Failed to get page text: {e}")
-            return ""
+            logger.debug(f"Markdown conversion failed for page {page_num}: {e}")
+            # Fallback to standard text
+            return page.get_text("text")
     
     def _scan_for_statements(
         self,
@@ -538,6 +586,76 @@ class FinancialParser:
             year_labels=self.year_labels.get(entity.value, ("Current Year", "Previous Year"))
         )
     
+    def _is_statement_table_header(self, line: str) -> Tuple[bool, Optional[str]]:
+        """
+        Detect if a line is a Consolidated or Standalone statement table header.
+        
+        Returns:
+            Tuple of (is_table_header, entity_type) where entity_type is 'consolidated', 
+            'standalone', or None
+        """
+        line_lower = line.lower().strip()
+        
+        # Patterns for detecting statement table headers
+        consolidated_patterns = [
+            r'consolidated\s+(?:statement|balance\s+sheet|profit\s+and\s+loss|cash\s+flow)',
+            r'consolidated\s+financial\s+statements?',
+            r'group\s+(?:statement|balance\s+sheet)',
+        ]
+        
+        standalone_patterns = [
+            r'standalone\s+(?:statement|balance\s+sheet|profit\s+and\s+loss|cash\s+flow)',
+            r'standalone\s+financial\s+statements?',
+            r'separate\s+financial\s+statements?',
+            r'unconsolidated\s+(?:statement|balance)',
+            r'company\s+(?:statement|balance\s+sheet)',
+        ]
+        
+        for pattern in consolidated_patterns:
+            if re.search(pattern, line_lower):
+                return True, 'consolidated'
+        
+        for pattern in standalone_patterns:
+            if re.search(pattern, line_lower):
+                return True, 'standalone'
+        
+        return False, None
+    
+    def _is_inside_table_structure(self, line: str, prev_lines: List[str]) -> bool:
+        """
+        Detect if we're likely inside a table structure based on content patterns.
+        
+        Returns:
+            True if line appears to be part of a financial table
+        """
+        line_lower = line.lower().strip()
+        
+        # Signs we're in a table:
+        # 1. Markdown table markers (|)
+        if '|' in line:
+            return True
+        
+        # 2. Multiple numbers in the line
+        numbers = re.findall(r'[\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?', line)
+        text_content = re.sub(r'[\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?', '', line).strip()
+        
+        # Must have numbers AND text (label + values)
+        if len(numbers) >= 2 and len(text_content) > 5:
+            return True
+        
+        # 3. Check for table-like patterns
+        table_indicators = [
+            r'\b(?:particulars|description)\s*$',
+            r'^\s*(?:total|sub-?total|net|gross)',
+            r'\b(?:assets?|liabilities?|equity|income|expenses?|revenue|profit|loss)\b',
+        ]
+        
+        for pattern in table_indicators:
+            if re.search(pattern, line_lower):
+                return True
+        
+        return False
+    
     def _parse_statement_text(
         self,
         text: str,
@@ -545,7 +663,14 @@ class FinancialParser:
         entity: ReportingEntity,
         pages: List[int]
     ) -> Tuple[List[FinancialLineItem], Dict[str, List[str]]]:
-        """Parse statement text into line items."""
+        """
+        Parse statement text into line items.
+        
+        Enhanced to:
+        - Look for Consolidated/Standalone statement table headers first
+        - Only extract data from within identified statement tables
+        - Use terminology database for keyword matching
+        """
         items = []
         sections: Dict[str, List[str]] = defaultdict(list)
         
@@ -555,6 +680,14 @@ class FinancialParser:
         current_page = pages[0] + 1 if pages else 1
         
         lines = text.split('\n')
+        
+        # Track state for table boundary detection
+        in_statement_table = False
+        explicit_table_mode = False
+        expected_entity = entity.value  # 'standalone' or 'consolidated'
+        lines_since_header = 0
+        prev_lines = []
+        table_end_indicators = 0
         
         for line in lines:
             # Track page changes
@@ -569,8 +702,49 @@ class FinancialParser:
             
             line_lower = stripped.lower()
             
+            # Check for statement table header
+            is_header, detected_entity = self._is_statement_table_header(stripped)
+            if is_header:
+                explicit_table_mode = True
+                # Only process tables matching our expected entity
+                if detected_entity == expected_entity or expected_entity == 'unknown':
+                    in_statement_table = True
+                    lines_since_header = 0
+                    table_end_indicators = 0
+                    self._log_debug(f"Entered {detected_entity} table on page {current_page}")
+                else:
+                    # Wrong entity type - skip this table
+                    in_statement_table = False
+                    self._log_debug(f"Skipping {detected_entity} table (expected {expected_entity})")
+                continue
+            
+            # If we haven't found a table yet but entity is already identified,
+            # still process but be more strict about matching
+            if not in_statement_table and not explicit_table_mode:
+                # Be more lenient if the boundary already identifies the entity
+                if entity != ReportingEntity.UNKNOWN:
+                    in_statement_table = True
+            
+            # Track table structure
+            if in_statement_table:
+                lines_since_header += 1
+                
+                # Detect potential table end (multiple consecutive non-table lines)
+                if not self._is_inside_table_structure(stripped, prev_lines):
+                    table_end_indicators += 1
+                    if table_end_indicators > 5:
+                        # Likely exited the table
+                        in_statement_table = False
+                        self._log_debug(f"Exited table after {lines_since_header} lines")
+                        continue
+                else:
+                    table_end_indicators = 0  # Reset on valid table line
+            
             # Skip non-financial lines
             if self.keywords.should_skip_line(line_lower):
+                prev_lines.append(stripped)
+                if len(prev_lines) > 5:
+                    prev_lines.pop(0)
                 continue
             
             # Detect section changes
@@ -580,18 +754,25 @@ class FinancialParser:
                         current_section = section_name
                         break
             
-            # Extract line item
-            item = self._extract_line_item(
-                stripped,
-                stmt_type.value,
-                current_section,
-                current_page,
-                entity
-            )
+            # Only extract line items if we're in a valid statement table
+            if in_statement_table:
+                # Extract line item
+                item = self._extract_line_item(
+                    stripped,
+                    stmt_type.value,
+                    current_section,
+                    current_page,
+                    entity
+                )
+                
+                if item:
+                    items.append(item)
+                    sections[current_section].append(item.id)
             
-            if item:
-                items.append(item)
-                sections[current_section].append(item.id)
+            # Update prev_lines buffer
+            prev_lines.append(stripped)
+            if len(prev_lines) > 5:
+                prev_lines.pop(0)
         
         return items, dict(sections)
     
@@ -604,97 +785,253 @@ class FinancialParser:
         entity: ReportingEntity
     ) -> Optional[FinancialLineItem]:
         """Extract a financial line item from text."""
-        # Find all numbers in line
+        # RELAXED FILTER: Line must act like a table row
+        # Only reject obvious narrative/paragraph text
+        
+        if len(line) > 200: # Narrative paragraphs are usually very long
+            return None
+            
+        line_lower = line.lower()
+        
+        # Clean Markdown artifacts
+        clean_line = line.replace('|', ' ').replace('#', '').strip()
+        
+        # Only reject lines with strong narrative patterns (more relaxed)
+        # Removed ' the ', 'in ' as they appear in valid terms like "Cash in hand", "Change in working capital"
+        strong_narrative_indicators = [' we ', ' our ', ' was ', ' were ', ' has been ', ' have been ']
+        if any(ind in clean_line.lower() for ind in strong_narrative_indicators):
+            return None
+            
+        # Check for sentence structure - only reject if clearly a sentence with multiple clauses
+        if ". " in line and line.count(". ") >= 2:
+            return None
+                
+        # Only reject if starts with very specific narrative starters
+        if line_lower.startswith(("we ", "refer ", "please ", "note that ")):
+             return None
+
+        # Find all numbers
+        # Use simpler regex that catches all numbers, validation happens later
         number_pattern = r'[\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?'
         all_numbers = re.findall(number_pattern, line)
         
         if len(all_numbers) < self.config.min_numbers_per_row:
             return None
-        
-        # Separate note references from values
+            
+        # 1. Parse Values & Detect Years (Pass 1)
         values = []
         note_ref = ""
         
+        raw_year_like_count = 0
+        raw_data_like_count = 0
+        
+        parsed_vals = []
+        
+        def is_likely_year_val(v, raw):
+            # Negative numbers are never years
+            if '-' in raw or '(' in raw: return False
+            # Check integer range
+            return 1990 <= v <= 2040 and v == int(v)
+
         for num_str in all_numbers:
             clean = num_str.strip()
-            clean = re.sub(r'[\(\)\-\s]', '', clean).replace(',', '')
-            
-            if not clean:
-                continue
+            clean_val_str = re.sub(r'[\(\)\-\s]', '', clean).replace(',', '')
+            if not clean_val_str: continue
             
             try:
-                val = float(clean)
-                # Small integers without decimals are likely note references
-                if val < 100 and '.' not in num_str and val == int(val) and not note_ref:
-                    note_ref = str(int(val))
-                else:
-                    values.append(num_str)
+                val = float(clean_val_str)
+                # Note ref logic
+                if val < 100 and '.' not in clean_val_str and val == int(val) and not note_ref:
+                     note_ref = str(int(val))
+                     continue
+                     
+                is_yr = is_likely_year_val(val, num_str)
+                if is_yr: raw_year_like_count += 1
+                else: raw_data_like_count += 1
+                
+                parsed_vals.append(val)
+                values.append(num_str)
             except ValueError:
                 continue
-        
-        if len(values) < 2:
+
+        if len(values) < 1:
             return None
-        
-        # Extract label
+
+        # 2. Extract Label
         label = self._extract_label(line, all_numbers)
-        
         if not label or len(label) < self.config.min_label_length:
             return None
-        
-        if len(label) > self.config.max_label_length:
-            label = label[:self.config.max_label_length]
-        
+            
         label_lower = label.lower()
         
-        # Skip header-like text
-        header_words = ['particulars', 'note no', 'as at', 'year ended',
-                       'schedule', 'ref', 'sr. no', 'amount', 'notes']
-        if any(hw in label_lower for hw in header_words):
-            return None
+        # YEAR HEADER CHECK: If label is "Particulars" or similar and row has years, reject
+        clean_label = re.sub(r'[^a-z]', '', label_lower)
+        if clean_label in ['particulars', 'description', 'yearended', 'aslat', 'items']:
+             if raw_year_like_count > 0:
+                 return None
+
+        # 3. Match Terminology
+        matched_term = self._match_terminology(label_lower)
+        term_id = None
         
-        # Must match financial keywords
-        if not self.keywords.matches_keyword(label_lower):
-            return None
-        
-        try:
-            # Parse values (last two are usually current and previous year)
+        if matched_term:
+            term_id = matched_term['key']
+            standardized_label = term_id.replace('_', ' ').title()
+            if standardized_label.endswith(" Eps"): standardized_label = standardized_label[:-3] + " EPS"
+            if standardized_label.startswith("Ebitda"): standardized_label = "EBITDA" 
+            if standardized_label.startswith("Ebit"): standardized_label = "EBIT"
+            label = standardized_label
+        else:
+             # Logic to reject if only years found AND no term match
+             if raw_data_like_count == 0 and raw_year_like_count > 0:
+                 # Likely a header row (2024  2023)
+                 return None
+             
+             # RELAXED MODE ('Find Harder'):
+             # If no keyword match, STILL accept if the line looks valid
+             # Criteria: Label is substantial (>8 chars) and not obvious noise
+             is_valid_structure = len(label) > 8 and not re.search(r'^(page|note|total\s*$)', label_lower)
+             
+             if not self.keywords.matches_keyword(label_lower) and not is_valid_structure:
+                 return None
+
+        # 4. Parse Final Values (Previous/Current)
+        # ... existing logic ...
+
+            
+        # Parse final values (last two are usually current and previous year)
+        # Handle cases with only 1 value
+        if len(values) >= 2:
             current_val = safe_float(values[-2])
             previous_val = safe_float(values[-1])
+        elif len(values) == 1:
+            current_val = safe_float(values[0])
+            previous_val = 0.0
+        else:
+            return None
+
+        # Determine characteristics
+        is_total = bool(re.search(r'\btotal\b', label_lower))
+        is_subtotal = is_total and any(
+            word in label_lower for word in ['sub', 'net', 'gross']
+        )
+        is_important = term_id is not None or self.keywords.is_important_item(label)
+        
+        # Calculate indent level
+        leading_spaces = len(line) - len(line.lstrip())
+        indent_level = min(leading_spaces // 4, self.config.max_indent_level)
+        
+        # Generate unique ID
+        entity_prefix = entity.value[:4] if entity != ReportingEntity.UNKNOWN else ""
+        
+        # Use Standard Term Key as base for ID if available
+        base_id_str = term_id if term_id else label
+        
+        item_id = self._generate_id(base_id_str, entity_prefix)
+        
+        return FinancialLineItem(
+            id=item_id,
+            label=label, # Keep original label for UI display
+            current_year=current_val,
+            previous_year=previous_val,
+            statement_type=statement_type,
+            reporting_entity=entity.value,
+            section=section,
+            note_ref=note_ref,
+            indent_level=indent_level,
+            is_total=is_total,
+            is_subtotal=is_subtotal,
+            is_important=is_important,
+            source_page=page_num,
+            raw_line=line[:200] if self.config.include_raw_text else ""
+        )
+
+    def _match_terminology(self, text: str) -> Optional[Dict]:
+        """
+        Match text against unified terminology map.
+        
+        Enhanced matching:
+        - Uses word boundary matching to avoid partial word matches
+        - Requires minimum keyword length to prevent matching single words incorrectly
+        - Prioritizes longer/more specific matches
+        - Uses the full terminology database from terminology_keywords.py
+        """
+        try:
+            # Try importing here to avoid circular imports at top level if any
+            sys.path.append(str(Path(__file__).parent.parent)) 
+            from terminology_keywords import TERMINOLOGY_MAP, KEYWORD_TO_TERM, KEYWORD_BOOST
             
-            # Determine characteristics
-            is_total = bool(re.search(r'\btotal\b', label_lower))
-            is_subtotal = is_total and any(
-                word in label_lower for word in ['sub', 'net', 'gross']
-            )
-            is_important = self.keywords.is_important_item(label)
+            best_match = None
+            max_score = 0
+            text_lower = text.lower().strip()
             
-            # Calculate indent level
-            leading_spaces = len(line) - len(line.lstrip())
-            indent_level = min(leading_spaces // 4, self.config.max_indent_level)
+            # MINIMUM KEYWORD LENGTH to prevent single-word/short matches
+            MIN_KEYWORD_LEN = 3
             
-            # Generate unique ID
-            entity_prefix = entity.value[:4] if entity != ReportingEntity.UNKNOWN else ""
-            item_id = self._generate_id(label, entity_prefix)
+            # Strategy 1: Try exact phrase matches first (highest priority)
+            for key, data in TERMINOLOGY_MAP.items():
+                for kw in data.get('keywords', []):
+                    kw_lower = kw.lower().strip()
+                    
+                    # Skip very short keywords (prevents partial matches)
+                    if len(kw_lower) < MIN_KEYWORD_LEN:
+                        continue
+                    
+                    # Check for word-boundary match (not partial word)
+                    # This prevents "revenue" matching in "non-revenue" or "tax" in "taxation"
+                    pattern = r'(?:^|[\s\-\(\[,;:])' + re.escape(kw_lower) + r'(?:[\s\-\)\],;:]|$)'
+                    if re.search(pattern, text_lower):
+                        # Score based on:
+                        # 1. Keyword length (longer = more specific)
+                        # 2. Boost from terminology database
+                        # 3. Exact match bonus
+                        boost = data.get('boost', 1.0)
+                        length_score = len(kw_lower)
+                        
+                        # Bonus for exact match (entire text matches keyword)
+                        exact_bonus = 10 if text_lower == kw_lower else 0
+                        
+                        # Bonus for starting match (keyword at start of text)
+                        start_bonus = 5 if text_lower.startswith(kw_lower) else 0
+                        
+                        score = (length_score * boost) + exact_bonus + start_bonus
+                        
+                        if score > max_score:
+                            max_score = score
+                            best_match = {'key': key, 'data': data, 'matched_keyword': kw_lower, 'score': score}
             
-            return FinancialLineItem(
-                id=item_id,
-                label=label,
-                current_year=current_val,
-                previous_year=previous_val,
-                statement_type=statement_type,
-                reporting_entity=entity.value,
-                section=section,
-                note_ref=note_ref,
-                indent_level=indent_level,
-                is_total=is_total,
-                is_subtotal=is_subtotal,
-                is_important=is_important,
-                source_page=page_num,
-                raw_line=line[:200] if self.config.include_raw_text else ""
-            )
+            # Strategy 2: If no match found, try with word tokenization
+            if not best_match:
+                # Split text into words and try matching multi-word phrases
+                words = re.findall(r'[a-z]+(?:\s+[a-z]+)*', text_lower)
+                text_words = text_lower.split()
+                
+                # Try 2-word, 3-word, 4-word combinations from the text
+                for window_size in [4, 3, 2]:
+                    if len(text_words) >= window_size:
+                        for i in range(len(text_words) - window_size + 1):
+                            phrase = ' '.join(text_words[i:i + window_size])
+                            
+                            # Look up in keyword-to-term map
+                            if phrase in KEYWORD_TO_TERM:
+                                term_keys = KEYWORD_TO_TERM[phrase]
+                                if term_keys:
+                                    key = term_keys[0]
+                                    data = TERMINOLOGY_MAP.get(key, {})
+                                    boost = KEYWORD_BOOST.get(phrase, 1.0)
+                                    score = len(phrase) * boost
+                                    
+                                    if score > max_score:
+                                        max_score = score
+                                        best_match = {'key': key, 'data': data, 'matched_keyword': phrase, 'score': score}
             
+            return best_match
+            
+        except ImportError:
+            # Fallback if map not available
+            return None
         except Exception as e:
-            self._log_debug(f"Parse error: {line[:50]}... - {e}")
+            logger.debug(f"Terminology matching error: {e}")
             return None
     
     def _extract_label(self, line: str, numbers: List[str]) -> str:
@@ -713,6 +1050,9 @@ class FinancialParser:
         
         # Clean up
         label = re.sub(r'\s+', ' ', label)
+        # Remove markdown table artifacts (pipes)
+        label = label.replace('|', '').strip()
+        
         label = re.sub(r'[:\-–—]+$', '', label).strip()
         label = re.sub(r'^\([a-z]\)\s*', '', label, flags=re.IGNORECASE)
         label = re.sub(r'^\d+\.\s*', '', label)
@@ -1129,6 +1469,88 @@ class FinancialParser:
         
         return result
     
+    def _parse_markdown_file(self, file_path: str) -> Dict[str, Any]:
+        """Parse a Markdown document."""
+        result = self._create_empty_result()
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Mock a 'doc' structure by splitting content into pages if possible
+            # But since it's a flat file, we treat it as single or multiple pages if delimiter found
+            
+            # Re-use _scan_for_statements logic? 
+            # It expects a 'doc' object (PyMuPDF). 
+            # We can refactor scanning OR wrap content in a Mock object.
+            
+            # Simple approach: Treat whole content as text for detection
+            
+            # Since _scan_for_statements relies on page-by-page iteration via 'doc',
+            # we will CREATE a mock doc object
+            
+            class MockPage:
+                def __init__(self, text):
+                    self.text = text
+                def get_text(self, option="text"):
+                    return self.text
+            
+            class MockDoc:
+                def __init__(self, text_content):
+                    # Split by page delimiter if present
+                    pages_text = text_content.split('--- Page')
+                    self.pages = []
+                    if len(pages_text) > 1:
+                        # Reconstruct pages
+                        for p in pages_text:
+                            if not p.strip(): continue
+                            # p might start with " 1 ---\n"
+                            clean_p = p
+                            if re.match(r'\s*\d+\s*---\n', p):
+                                clean_p = re.sub(r'^\s*\d+\s*---\n', '', p)
+                            self.pages.append(MockPage(clean_p))
+                    else:
+                        self.pages = [MockPage(text_content)]
+                        
+                def __len__(self): return len(self.pages)
+                def __getitem__(self, idx): return self.pages[idx]
+                def get_toc(self): return []
+                def close(self): pass
+
+            # Use the Mock Doc with standard pipeline
+            # Note: We skip OCR since it's text
+            mock_doc = MockDoc(content)
+            
+            # Cache the markdown directly since it's already MD
+            for i, p in enumerate(mock_doc.pages):
+                self.markdown_cache[i] = p.text
+
+            # Run standard pipeline
+            statement_map = self._scan_for_statements(mock_doc, {})
+            self._extract_all_year_labels(mock_doc, statement_map, {})
+            
+            all_items = []
+            for key, boundary in statement_map.items():
+                entity_key = boundary.identifier.reporting_entity.value
+                stmt_key = boundary.identifier.statement_type.value
+                self._current_entity = boundary.identifier.reporting_entity
+                
+                parsed = self._parse_statement(mock_doc, boundary, {})
+                
+                if entity_key in ['standalone', 'consolidated']:
+                    result[entity_key][stmt_key] = parsed.to_dict()
+                
+                for item in parsed.items:
+                    all_items.append(item.to_dict())
+            
+            result["items"] = all_items
+            result["text"] = content
+            
+        except Exception as e:
+            logger.error(f"Markdown parsing failed: {e}")
+            result["metadata"]["error"] = str(e)
+            
+        return result
+    
     # =========================================================================
     # Keyword Management
     # =========================================================================
@@ -1144,3 +1566,21 @@ class FinancialParser:
             Number of keywords added
         """
         return self.keywords.update_from_mappings(mappings)
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def parse_file(file_path: str, file_type: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Wrapper function to parse a file using FinancialParser.
+    Creates a new parser instance for each call to ensure thread safety.
+    """
+    parser = FinancialParser()
+    return parser.parse(file_path, file_type)
+
+def parse_annual_report(file_path: str) -> Dict[str, Any]:
+    """
+    Legacy wrapper for parsing annual reports.
+    """
+    return parse_file(file_path, file_type='pdf')

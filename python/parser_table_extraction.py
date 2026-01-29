@@ -234,11 +234,42 @@ class TableExtractor:
         self,
         lines: List[str]
     ) -> Tuple[List[str], List[List[str]]]:
-        """Parse table lines into headers and data rows."""
+        """Parse table lines into headers and data rows with enhanced year detection."""
         headers = []
         rows = []
         
-        # Find header row
+        # PHASE 1: Detect year header row
+        # Financial statements often have a row like "2025   2024   2023" or dates
+        year_header_idx = -1
+        year_header_content = []
+        date_prefix = ""
+        
+        for i, line in enumerate(lines[:10]):  # Check first 10 lines
+            line_stripped = line.strip()
+            
+            # Check for date prefix like "September 30," or "As at"
+            if re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s*\d{0,2}\s*,?\s*$', line_stripped, re.I):
+                date_prefix = line_stripped
+                continue
+            if re.search(r'^As\s+(at|of)\s*$', line_stripped, re.I):
+                date_prefix = line_stripped
+                continue
+            if re.search(r'^For\s+the\s+(year|period)\s+ended?\s*$', line_stripped, re.I):
+                date_prefix = line_stripped
+                continue
+            
+            # Check if this line is entirely years
+            years_in_line = re.findall(r'\b(20\d{2}|19\d{2})\b', line_stripped)
+            non_year_content = re.sub(r'\b(20\d{2}|19\d{2})\b', '', line_stripped).strip()
+            non_year_content = re.sub(r'[\s\$\|\-]+', '', non_year_content)
+            
+            # If line has 2+ years and almost nothing else, it's a year header
+            if len(years_in_line) >= 2 and len(non_year_content) < 15:
+                year_header_idx = i
+                year_header_content = years_in_line
+                break
+        
+        # PHASE 2: Find description/particulars header row
         header_idx = -1
         header_patterns = [
             r'particulars',
@@ -253,23 +284,55 @@ class TableExtractor:
                 header_idx = i
                 break
         
+        # PHASE 3: Build headers
         if header_idx >= 0:
-            headers = self._split_table_line(lines[header_idx])
-            data_lines = lines[header_idx + 1:]
+            base_headers = self._split_table_line(lines[header_idx])
+            
+            # If we found year headers, combine them
+            if year_header_content:
+                # First column is the label column, rest are years
+                if base_headers:
+                    headers = [base_headers[0]] + year_header_content
+                else:
+                    headers = ["Particulars"] + year_header_content
+            else:
+                headers = base_headers
+            
+            # Data starts after the header row (and year row if present)
+            data_start = max(header_idx + 1, year_header_idx + 1 if year_header_idx >= 0 else header_idx + 1)
+            data_lines = lines[data_start:]
+        elif year_header_content:
+            # No label header found, but we have years
+            headers = ["Particulars"] + year_header_content
+            data_lines = lines[year_header_idx + 1:]
         else:
             data_lines = lines
         
-        # Parse data rows
+        # PHASE 4: Parse data rows
         for line in data_lines:
             if not line.strip():
                 continue
             
+            # Skip lines that are ONLY years (already used as headers)
+            years_in_line = re.findall(r'\b(20\d{2}|19\d{2})\b', line)
+            non_year_text = re.sub(r'\b(20\d{2}|19\d{2})\b', '', line).strip()
+            non_year_text = re.sub(r'[\s\$\|\-]+', '', non_year_text)
+            if len(years_in_line) >= 2 and len(non_year_text) < 5:
+                continue
+            
             # Check if line has enough numbers to be a data row
             numbers = re.findall(self.INDIAN_NUMBER_PATTERN, line)
+            
             if len(numbers) >= self.config.min_numbers_per_row:
                 row = self._split_table_line(line)
                 if row and len(row) >= 2:
                     rows.append(row)
+            elif len(numbers) == 1:
+                row = self._split_table_line(line)
+                if row and len(row) >= 2:
+                    label_text = row[0].strip()
+                    if len(label_text) > 8 and not re.match(r'^Page\s*\d+$', label_text, re.I):
+                        rows.append(row)
         
         return headers, rows
     

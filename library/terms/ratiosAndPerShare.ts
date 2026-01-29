@@ -304,10 +304,11 @@ export const PER_SHARE_DATA_TERMS: TermMapping[] = [
         label: 'Basic EPS',
         keywords_indas: [
             'basic earnings per share', 'basic eps', 'earnings per share basic',
-            'basic profit per share'
+            'basic profit per share', 'eps (basic)'
         ],
         keywords_gaap: [
-            'basic earnings per share', 'basic eps', 'earnings per share basic'
+            'basic earnings per share', 'basic eps', 'earnings per share basic',
+            'net income per share - basic'
         ],
         keywords_ifrs: [
             'basic earnings per share', 'basic eps'
@@ -324,10 +325,12 @@ export const PER_SHARE_DATA_TERMS: TermMapping[] = [
         key: 'diluted_eps',
         label: 'Diluted EPS',
         keywords_indas: [
-            'diluted earnings per share', 'diluted eps', 'earnings per share diluted'
+            'diluted earnings per share', 'diluted eps', 'earnings per share diluted',
+            'eps (diluted)'
         ],
         keywords_gaap: [
-            'diluted earnings per share', 'diluted eps', 'earnings per share diluted'
+            'diluted earnings per share', 'diluted eps', 'earnings per share diluted',
+            'net income per share - diluted'
         ],
         keywords_ifrs: [
             'diluted earnings per share', 'diluted eps'
@@ -359,13 +362,17 @@ export const PER_SHARE_DATA_TERMS: TermMapping[] = [
         key: 'dividend_per_share',
         label: 'Dividend Per Share',
         keywords_indas: [
-            'dividend per share', 'dps', 'dividend per equity share'
+            'dividend per share', 'dps', 'dividend per equity share',
+            'dividends declared per share', 'cash dividends per share'
         ],
         keywords_gaap: [
-            'dividends per share', 'dividend per share', 'dps'
+            'dividends per share', 'dividend per share', 'dps',
+            'dividends and dividend equivalents declared per share or rsu',
+            'dividends and dividend equivalents declared', 'dividend declared per share',
+            'cash dividends declared per common share'
         ],
         keywords_ifrs: [
-            'dividend per share', 'dps'
+            'dividend per share', 'dps', 'dividends declared per share'
         ]
     },
     {
@@ -394,7 +401,9 @@ export const PER_SHARE_DATA_TERMS: TermMapping[] = [
         ],
         keywords_gaap: [
             'shares outstanding', 'common shares outstanding',
-            'weighted average shares outstanding'
+            'weighted average shares outstanding',
+            'shares used in computing basic earnings per share',
+            'shares used in computing diluted earnings per share'
         ],
         keywords_ifrs: [
             'ordinary shares outstanding', 'shares in issue',

@@ -27,9 +27,11 @@ interface MetricsDashboardProps {
   pinnedIds: Set<string>;
   onTogglePin: (id: string) => void;
   searchTerm?: string;
+  epsType?: 'basic' | 'diluted';
+  onEpsTypeChange?: (type: 'basic' | 'diluted') => void;
 }
 
-export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinnedIds, onTogglePin, searchTerm = '' }) => {
+export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinnedIds, onTogglePin, searchTerm = '', epsType = 'basic', onEpsTypeChange }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(groups.map(g => g.category)));
   const [selectedMetric, setSelectedMetric] = useState<FinancialItem | null>(null);
   const [metricDetails, setMetricDetails] = useState<MetricDefinition | null>(null);
@@ -118,12 +120,32 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {/* EPS Toggle for relevant metrics */}
+            {(selectedMetric.label.toLowerCase().includes('p/e') ||
+              selectedMetric.label.toLowerCase().includes('earnings yield') ||
+              selectedMetric.id === 'basic_eps' || selectedMetric.id === 'diluted_eps') && onEpsTypeChange && (
+                <div className="flex items-center p-1 bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg mr-2">
+                  <button
+                    onClick={() => onEpsTypeChange('basic')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${epsType === 'basic' ? 'bg-[var(--accent-primary)] text-white shadow-sm' : 'text-tertiary hover:text-primary'}`}
+                  >
+                    Basic
+                  </button>
+                  <button
+                    onClick={() => onEpsTypeChange('diluted')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${epsType === 'diluted' ? 'bg-[var(--accent-primary)] text-white shadow-sm' : 'text-tertiary hover:text-primary'}`}
+                  >
+                    Diluted
+                  </button>
+                </div>
+              )}
+
             <button
               onClick={() => onTogglePin(selectedMetric.id)}
               className={isPinned ? 'btn-secondary' : 'btn-primary'}
             >
               {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-              <span>{isPinned ? 'Unpin' : 'Pin to Summary'}</span>
+              <span>{isPinned ? 'Unpin' : 'Pin'}</span>
             </button>
             <button onClick={closeDetailView} className="btn-icon">
               <X className="w-5 h-5" />
@@ -132,7 +154,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-24">
+        <div className="flex-1 overflow-y-scroll custom-scrollbar p-6 pb-24 h-full">
           <div className="max-w-5xl mx-auto space-y-6">
 
             {/* Value Cards Row */}
@@ -309,8 +331,10 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
   // Grid View (Default)
   return (
     <div className="flex-1 flex flex-col p-4 overflow-hidden">
-      {/* Search Bar */}
+      {/* Search Bar & Toggles */}
+      <div className="flex items-center justify-between gap-4 mb-4 px-1">
 
+      </div>
 
       {/* Categories */}
       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2 pb-24">

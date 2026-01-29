@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Moon, Sun, Zap, KeyRound, Database, Sparkles, CheckCircle } from 'lucide-react';
 import { AppSettings } from '../types';
+import { LLMSettingsPanel } from '../src/components/LLMSettingsPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,9 +14,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   if (!isOpen) return null;
 
   const handleThemeToggle = () => {
+    const nextThemeMap: Record<string, 'light' | 'dark' | 'system'> = {
+      'light': 'dark',
+      'dark': 'system',
+      'system': 'light'
+    };
     onUpdateSettings({
       ...settings,
-      theme: settings.theme === 'dark' ? 'light' : 'dark'
+      theme: nextThemeMap[settings.theme] || 'light'
     });
   };
 
@@ -45,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     { id: 'groq', name: 'Groq', icon: '⚡', description: 'Ultra-fast responses' },
     { id: 'openai', name: 'OpenAI', icon: '🤖', description: 'GPT-4 powered' },
     { id: 'openrouter', name: 'OpenRouter', icon: '🌐', description: 'Multi-model access' },
+    { id: 'local_llm', name: 'Local LLM', icon: '🏠', description: 'Private & Offline (Ollama)' },
   ];
 
   return (
@@ -88,7 +95,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
                 <div>
                   <p className="text-sm font-medium text-primary">Theme</p>
-                  <p className="text-xs text-tertiary">{settings.theme === 'dark' ? 'Dark mode' : 'Light mode'}</p>
+                  <p className="text-xs text-tertiary">
+                    {settings.theme === 'dark' ? 'Dark mode' : settings.theme === 'light' ? 'Light mode' : 'Follow system'}
+                  </p>
                 </div>
               </div>
               <div className={`w-12 h-7 rounded-full p-1 transition-colors ${settings.theme === 'dark' ? 'bg-[var(--accent-primary)]' : 'bg-[var(--border-strong)]'}`}>
@@ -177,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
           </section>
 
           {/* API Keys */}
-          {settings.enableAI && (
+          {settings.enableAI && settings.aiProvider !== 'local_llm' && (
             <section className="animate-fadeIn stagger-2">
               <h3 className="label-uppercase mb-4">API Keys</h3>
               <div className="space-y-4">
@@ -197,17 +206,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs text-tertiary mb-1.5 block">Model Name (Optional)</label>
-                  <input
-                    type="text"
-                    value={settings.modelName || ''}
-                    onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
-                    placeholder="e.g., gemini-2.5-pro"
-                    className="glass-input w-full"
-                  />
-                </div>
+                {settings.aiProvider === 'gemini' && (
+                  <div className="mb-4 animate-fadeIn">
+                    <label className="text-xs text-tertiary mb-1.5 block">Select Gemini Model</label>
+                    <select
+                      value={settings.modelName || 'gemini-1.5-flash'}
+                      onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
+                      className="glass-input w-full appearance-none cursor-pointer"
+                    >
+                      <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast & Smart)</option>
+                      <option value="gemini-1.5-flash">Gemini 1.5 Flash (Efficient)</option>
+                      <option value="gemini-1.5-pro">Gemini 1.5 Pro (High Logic)</option>
+                      <option value="gemini-2.0-flash-thinking-exp-1219">Gemini 2.0 Thinking (Experimental)</option>
+                    </select>
+                  </div>
+                )}
+
+                {settings.aiProvider === 'groq' && (
+                  <div className="mb-4 animate-fadeIn">
+                    <label className="text-xs text-tertiary mb-1.5 block">Select Groq Model</label>
+                    <select
+                      value={settings.modelName || 'llama-3.3-70b-versatile'}
+                      onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
+                      className="glass-input w-full appearance-none cursor-pointer"
+                    >
+                      <optgroup label="Llama Series">
+                        <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (12k TPM)</option>
+                        <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (6k TPM)</option>
+                        <option value="meta-llama/llama-4-maverick-17b-128e-instruct">Llama 4 Maverick 17B (6k TPM)</option>
+                        <option value="meta-llama/llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B (30k TPM)</option>
+                        <option value="allam-2-7b">Allam 2 7B (6k TPM)</option>
+                      </optgroup>
+                      <optgroup label="Groq Originals">
+                        <option value="groq/compound">Groq Compound (70k TPM)</option>
+                        <option value="groq/compound-mini">Groq Compound Mini (70k TPM)</option>
+                      </optgroup>
+                      <optgroup label="Moonshot AI">
+                        <option value="moonshotai/kimi-k2-instruct">Kimi K2 Instruct (10k TPM)</option>
+                        <option value="moonshotai/kimi-k2-instruct-0905">Kimi K2 Instruct 0905 (10k TPM)</option>
+                      </optgroup>
+                      <optgroup label="GPT-OSS Series">
+                        <option value="openai/gpt-oss-120b">GPT-OSS 120B (8k TPM)</option>
+                        <option value="openai/gpt-oss-20b">GPT-OSS 20B (8k TPM)</option>
+                        <option value="openai/gpt-oss-safeguard-20b">GPT-OSS Safeguard 20B (8k TPM)</option>
+                      </optgroup>
+                      <optgroup label="Other">
+                        <option value="qwen/qwen3-32b">Qwen 3 32B (6k TPM)</option>
+                        <option value="meta-llama/llama-guard-4-12b">Llama Guard 4 12B (15k TPM)</option>
+                        <option value="meta-llama/llama-prompt-guard-2-22m">Llama Prompt Guard 22M (15k TPM)</option>
+                        <option value="meta-llama/llama-prompt-guard-2-86m">Llama Prompt Guard 86M (15k TPM)</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                )}
+
+                {settings.aiProvider !== 'groq' && settings.aiProvider !== 'gemini' && (
+                  <div>
+                    <label className="text-xs text-tertiary mb-1.5 block">Model Name (Optional)</label>
+                    <input
+                      type="text"
+                      value={settings.modelName || ''}
+                      onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
+                      placeholder="e.g., gpt-4o"
+                      className="glass-input w-full"
+                    />
+                  </div>
+                )}
               </div>
+            </section>
+          )}
+
+          {/* Local LLM Settings */}
+          {settings.enableAI && settings.aiProvider === 'local_llm' && (
+            <section className="animate-fadeIn stagger-2">
+              <LLMSettingsPanel />
             </section>
           )}
 

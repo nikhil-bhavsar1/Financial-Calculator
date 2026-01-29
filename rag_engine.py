@@ -3,137 +3,154 @@ import re
 import math
 from collections import Counter
 
+# Import unified terminology map
+try:
+    from terminology_keywords import (
+        TERMINOLOGY_MAP, KEYWORD_BOOST, KEYWORD_TO_TERM,
+        get_metric_ids_for_term, get_term_for_keyword, get_boost_for_keyword,
+        get_all_keywords, get_standards_for_term
+    )
+    USE_TERMINOLOGY_MAP = True
+except ImportError:
+    USE_TERMINOLOGY_MAP = False
+
 
 class RAGEngine:
     def __init__(self):
         self.chunks = []
         self.corpus_stats = {}  # For IDF
         
-        # IndAS/Financial Statement specific keywords with boost weights
-        self.financial_keywords = {
-            # IndAS Standards
-            'indas': 2.5, 'ind as': 2.5, 'indian accounting standard': 2.5,
-            'ifrs': 2.0, 'gaap': 2.0, 'icai': 1.8,
-            
-            # Core Financial Statements
-            'balance sheet': 2.2, 'statement of profit and loss': 2.2,
-            'profit and loss': 2.0, 'income statement': 2.0,
-            'cash flow statement': 2.2, 'cash flow': 2.0,
-            'statement of changes in equity': 2.2, 'notes to accounts': 2.0,
-            'financial statements': 2.0, 'consolidated': 1.8, 'standalone': 1.5,
-            'annual report': 1.5, 'quarterly report': 1.5,
-            
-            # Revenue & Income (IndAS 115)
-            'revenue recognition': 2.5, 'revenue from contracts': 2.5,
-            'performance obligation': 2.3, 'contract asset': 2.2,
-            'contract liability': 2.2, 'transaction price': 2.2,
-            'variable consideration': 2.2, 'revenue': 1.8,
-            
-            # Leases (IndAS 116)
-            'lease': 2.0, 'lease liability': 2.3, 'right of use asset': 2.3,
-            'rou asset': 2.2, 'operating lease': 2.0, 'finance lease': 2.0,
-            'lease term': 1.8, 'lease payments': 1.8, 'lessee': 1.8, 'lessor': 1.8,
-            
-            # Financial Instruments (IndAS 109, 107, 32)
-            'financial instruments': 2.3, 'financial assets': 2.2,
-            'financial liabilities': 2.2, 'expected credit loss': 2.5,
-            'ecl': 2.3, 'fvtpl': 2.3, 'fvoci': 2.3, 'amortised cost': 2.2,
-            'amortized cost': 2.2, 'hedge accounting': 2.3, 'hedging': 2.0,
-            'derivative': 2.0, 'derivatives': 2.0, 'fair value hedge': 2.2,
-            'cash flow hedge': 2.2, 'credit risk': 2.0, 'liquidity risk': 2.0,
-            'market risk': 2.0, 'impairment of financial assets': 2.3,
-            
-            # Fair Value (IndAS 113)
-            'fair value': 2.2, 'fair value measurement': 2.3,
-            'level 1': 1.8, 'level 2': 1.8, 'level 3': 1.8,
-            'fair value hierarchy': 2.2, 'observable inputs': 2.0,
-            'unobservable inputs': 2.0, 'valuation technique': 2.0,
-            
-            # PPE & Intangibles (IndAS 16, 38)
-            'property plant and equipment': 2.2, 'ppe': 2.0,
-            'depreciation': 2.0, 'useful life': 1.8, 'residual value': 1.8,
-            'intangible assets': 2.2, 'amortization': 2.0, 'amortisation': 2.0,
-            'goodwill': 2.2, 'impairment': 2.2, 'impairment loss': 2.3,
-            'recoverable amount': 2.2, 'value in use': 2.0,
-            'carrying amount': 2.0, 'carrying value': 1.8,
-            
-            # Inventory (IndAS 2)
-            'inventory': 2.0, 'inventories': 2.0, 'cost of inventory': 2.0,
-            'net realisable value': 2.2, 'nrv': 2.0, 'fifo': 1.8,
-            'weighted average': 1.8, 'cost formula': 1.8,
-            
-            # Provisions & Contingencies (IndAS 37)
-            'provisions': 2.0, 'contingent liability': 2.3,
-            'contingent liabilities': 2.3, 'contingent asset': 2.2,
-            'onerous contract': 2.0, 'restructuring provision': 2.0,
-            'legal claims': 1.8, 'warranty provision': 1.8,
-            
-            # Employee Benefits (IndAS 19)
-            'employee benefits': 2.2, 'defined benefit': 2.2,
-            'defined contribution': 2.0, 'gratuity': 2.0,
-            'leave encashment': 1.8, 'actuarial': 2.0,
-            'actuarial valuation': 2.2, 'pension': 1.8,
-            'post employment benefits': 2.0, 'remeasurement': 2.0,
-            
-            # Income Taxes (IndAS 12)
-            'deferred tax': 2.3, 'deferred tax asset': 2.2,
-            'deferred tax liability': 2.2, 'current tax': 2.0,
-            'income tax': 2.0, 'tax expense': 1.8, 'temporary difference': 2.2,
-            'temporary differences': 2.2, 'tax base': 2.0,
-            'mat credit': 2.0, 'minimum alternate tax': 2.0,
-            
-            # Business Combinations (IndAS 103)
-            'business combination': 2.3, 'acquisition': 2.0,
-            'purchase consideration': 2.2, 'bargain purchase': 2.0,
-            'acquisition date': 2.0, 'acquiree': 1.8, 'acquirer': 1.8,
-            
-            # Consolidation (IndAS 110, 111, 112, 28)
-            'consolidation': 2.0, 'subsidiary': 2.0, 'subsidiaries': 2.0,
-            'associate': 2.0, 'joint venture': 2.0, 'joint arrangement': 2.0,
-            'equity method': 2.2, 'non controlling interest': 2.2,
-            'nci': 2.0, 'control': 1.8, 'significant influence': 2.0,
-            
-            # Related Parties (IndAS 24)
-            'related party': 2.3, 'related parties': 2.3,
-            'related party transactions': 2.5, 'related party disclosures': 2.3,
-            'key management personnel': 2.2, 'kmp': 2.0,
-            
-            # Segment Reporting (IndAS 108)
-            'segment reporting': 2.3, 'operating segment': 2.2,
-            'reportable segment': 2.0, 'segment revenue': 2.0,
-            'segment result': 2.0, 'segment assets': 2.0,
-            
-            # EPS (IndAS 33)
-            'earnings per share': 2.3, 'eps': 2.0, 'basic eps': 2.0,
-            'diluted eps': 2.0, 'weighted average shares': 2.0,
-            
-            # Other Comprehensive Income
-            'other comprehensive income': 2.2, 'oci': 2.0,
-            'total comprehensive income': 2.0, 'reclassification': 1.8,
-            
-            # General Financial Terms
-            'assets': 1.5, 'liabilities': 1.5, 'equity': 1.8,
-            'reserves': 1.5, 'retained earnings': 1.8, 'share capital': 1.8,
-            'borrowings': 1.8, 'debt': 1.5, 'trade receivables': 1.8,
-            'trade payables': 1.8, 'capital': 1.5, 'dividend': 1.5,
-            'profit': 1.5, 'loss': 1.5, 'expense': 1.3, 'income': 1.3,
-            
-            # Accounting Policies & Disclosures
-            'significant accounting policies': 2.3, 'accounting policy': 2.0,
-            'accounting policies': 2.0, 'disclosure': 1.8, 'disclosures': 1.8,
-            'recognition': 1.8, 'measurement': 1.8, 'derecognition': 2.0,
-            'presentation': 1.5, 'critical estimates': 2.2,
-            'critical accounting judgments': 2.2, 'judgments': 1.8,
-            'estimates': 1.5, 'assumptions': 1.5,
-            
-            # First-time Adoption (IndAS 101)
-            'first time adoption': 2.3, 'transition': 2.0,
-            'opening balance sheet': 2.0, 'deemed cost': 2.0,
-            
-            # Events after Reporting Period (IndAS 10)
-            'events after reporting period': 2.3, 'subsequent events': 2.2,
-            'adjusting events': 2.0, 'non adjusting events': 2.0,
-        }
+        # Use unified terminology map if available, else fallback to legacy
+        if USE_TERMINOLOGY_MAP:
+            self.financial_keywords = KEYWORD_BOOST
+            self.terminology_map = TERMINOLOGY_MAP
+        else:
+            # Legacy fallback - IndAS/Financial Statement specific keywords with boost weights
+            self.financial_keywords = {
+                # IndAS Standards
+                'indas': 2.5, 'ind as': 2.5, 'indian accounting standard': 2.5,
+                'ifrs': 2.0, 'gaap': 2.0, 'icai': 1.8,
+                
+                # Core Financial Statements
+                'balance sheet': 2.2, 'statement of profit and loss': 2.2,
+                'profit and loss': 2.0, 'income statement': 2.0,
+                'cash flow statement': 2.2, 'cash flow': 2.0,
+                'statement of changes in equity': 2.2, 'notes to accounts': 2.0,
+                'financial statements': 2.0, 'consolidated': 1.8, 'standalone': 1.5,
+                'annual report': 1.5, 'quarterly report': 1.5,
+                
+                # Revenue & Income (IndAS 115)
+                'revenue recognition': 2.5, 'revenue from contracts': 2.5,
+                'performance obligation': 2.3, 'contract asset': 2.2,
+                'contract liability': 2.2, 'transaction price': 2.2,
+                'variable consideration': 2.2, 'revenue': 1.8,
+                
+                # Leases (IndAS 116)
+                'lease': 2.0, 'lease liability': 2.3, 'right of use asset': 2.3,
+                'rou asset': 2.2, 'operating lease': 2.0, 'finance lease': 2.0,
+                'lease term': 1.8, 'lease payments': 1.8, 'lessee': 1.8, 'lessor': 1.8,
+                
+                # Financial Instruments (IndAS 109, 107, 32)
+                'financial instruments': 2.3, 'financial assets': 2.2,
+                'financial liabilities': 2.2, 'expected credit loss': 2.5,
+                'ecl': 2.3, 'fvtpl': 2.3, 'fvoci': 2.3, 'amortised cost': 2.2,
+                'amortized cost': 2.2, 'hedge accounting': 2.3, 'hedging': 2.0,
+                'derivative': 2.0, 'derivatives': 2.0, 'fair value hedge': 2.2,
+                'cash flow hedge': 2.2, 'credit risk': 2.0, 'liquidity risk': 2.0,
+                'market risk': 2.0, 'impairment of financial assets': 2.3,
+                
+                # Fair Value (IndAS 113)
+                'fair value': 2.2, 'fair value measurement': 2.3,
+                'level 1': 1.8, 'level 2': 1.8, 'level 3': 1.8,
+                'fair value hierarchy': 2.2, 'observable inputs': 2.0,
+                'unobservable inputs': 2.0, 'valuation technique': 2.0,
+                
+                # PPE & Intangibles (IndAS 16, 38)
+                'property plant and equipment': 2.2, 'ppe': 2.0,
+                'depreciation': 2.0, 'useful life': 1.8, 'residual value': 1.8,
+                'intangible assets': 2.2, 'amortization': 2.0, 'amortisation': 2.0,
+                'goodwill': 2.2, 'impairment': 2.2, 'impairment loss': 2.3,
+                'recoverable amount': 2.2, 'value in use': 2.0,
+                'carrying amount': 2.0, 'carrying value': 1.8,
+                
+                # Inventory (IndAS 2)
+                'inventory': 2.0, 'inventories': 2.0, 'cost of inventory': 2.0,
+                'net realisable value': 2.2, 'nrv': 2.0, 'fifo': 1.8,
+                'weighted average': 1.8, 'cost formula': 1.8,
+                
+                # Provisions & Contingencies (IndAS 37)
+                'provisions': 2.0, 'contingent liability': 2.3,
+                'contingent liabilities': 2.3, 'contingent asset': 2.2,
+                'onerous contract': 2.0, 'restructuring provision': 2.0,
+                'legal claims': 1.8, 'warranty provision': 1.8,
+                
+                # Employee Benefits (IndAS 19)
+                'employee benefits': 2.2, 'defined benefit': 2.2,
+                'defined contribution': 2.0, 'gratuity': 2.0,
+                'leave encashment': 1.8, 'actuarial': 2.0,
+                'actuarial valuation': 2.2, 'pension': 1.8,
+                'post employment benefits': 2.0, 'remeasurement': 2.0,
+                
+                # Income Taxes (IndAS 12)
+                'deferred tax': 2.3, 'deferred tax asset': 2.2,
+                'deferred tax liability': 2.2, 'current tax': 2.0,
+                'income tax': 2.0, 'tax expense': 1.8, 'temporary difference': 2.2,
+                'temporary differences': 2.2, 'tax base': 2.0,
+                'mat credit': 2.0, 'minimum alternate tax': 2.0,
+                
+                # Business Combinations (IndAS 103)
+                'business combination': 2.3, 'acquisition': 2.0,
+                'purchase consideration': 2.2, 'bargain purchase': 2.0,
+                'acquisition date': 2.0, 'acquiree': 1.8, 'acquirer': 1.8,
+                
+                # Consolidation (IndAS 110, 111, 112, 28)
+                'consolidation': 2.0, 'subsidiary': 2.0, 'subsidiaries': 2.0,
+                'associate': 2.0, 'joint venture': 2.0, 'joint arrangement': 2.0,
+                'equity method': 2.2, 'non controlling interest': 2.2,
+                'nci': 2.0, 'control': 1.8, 'significant influence': 2.0,
+                
+                # Related Parties (IndAS 24)
+                'related party': 2.3, 'related parties': 2.3,
+                'related party transactions': 2.5, 'related party disclosures': 2.3,
+                'key management personnel': 2.2, 'kmp': 2.0,
+                
+                # Segment Reporting (IndAS 108)
+                'segment reporting': 2.3, 'operating segment': 2.2,
+                'reportable segment': 2.0, 'segment revenue': 2.0,
+                'segment result': 2.0, 'segment assets': 2.0,
+                
+                # EPS (IndAS 33)
+                'earnings per share': 2.3, 'eps': 2.0, 'basic eps': 2.0,
+                'diluted eps': 2.0, 'weighted average shares': 2.0,
+                
+                # Other Comprehensive Income
+                'other comprehensive income': 2.2, 'oci': 2.0,
+                'total comprehensive income': 2.0, 'reclassification': 1.8,
+                
+                # General Financial Terms
+                'assets': 1.5, 'liabilities': 1.5, 'equity': 1.8,
+                'reserves': 1.5, 'retained earnings': 1.8, 'share capital': 1.8,
+                'borrowings': 1.8, 'debt': 1.5, 'trade receivables': 1.8,
+                'trade payables': 1.8, 'capital': 1.5, 'dividend': 1.5,
+                'profit': 1.5, 'loss': 1.5, 'expense': 1.3, 'income': 1.3,
+                
+                # Accounting Policies & Disclosures
+                'significant accounting policies': 2.3, 'accounting policy': 2.0,
+                'accounting policies': 2.0, 'disclosure': 1.8, 'disclosures': 1.8,
+                'recognition': 1.8, 'measurement': 1.8, 'derecognition': 2.0,
+                'presentation': 1.5, 'critical estimates': 2.2,
+                'critical accounting judgments': 2.2, 'judgments': 1.8,
+                'estimates': 1.5, 'assumptions': 1.5,
+                
+                # First-time Adoption (IndAS 101)
+                'first time adoption': 2.3, 'transition': 2.0,
+                'opening balance sheet': 2.0, 'deemed cost': 2.0,
+                
+                # Events after Reporting Period (IndAS 10)
+                'events after reporting period': 2.3, 'subsequent events': 2.2,
+                'adjusting events': 2.0, 'non adjusting events': 2.0,
+            }
+            self.terminology_map = {}
         
         # IndAS Standard Number Mappings for context
         self.indas_standards = {
@@ -483,7 +500,7 @@ class RAGEngine:
         return False
 
     def _extract_financial_terms(self, text):
-        """Extract and count significant financial terms from text."""
+        """Extract and count significant financial terms from text with metric mappings."""
         text_lower = text.lower()
         found_terms = {}
         
@@ -494,9 +511,64 @@ class RAGEngine:
             matches = re.findall(pattern, text_lower)
             count = len(matches)
             if count > 0:
-                found_terms[term] = {'count': count, 'boost': boost}
+                term_data = {'count': count, 'boost': boost}
+                
+                # Add metric mappings if using terminology map
+                if USE_TERMINOLOGY_MAP and term in KEYWORD_TO_TERM:
+                    term_keys = KEYWORD_TO_TERM[term]
+                    term_data['term_keys'] = term_keys
+                    # Collect all associated metrics
+                    metrics = []
+                    for tk in term_keys:
+                        metrics.extend(get_metric_ids_for_term(tk))
+                    term_data['metric_ids'] = list(set(metrics))
+                
+                found_terms[term] = term_data
         
         return found_terms
+    
+    def extract_terms_with_metrics(self, text):
+        """
+        Extract financial terms and return structured data with metric associations.
+        Returns dict mapping term_key -> {keywords_found, metric_ids, category, standards}
+        """
+        if not USE_TERMINOLOGY_MAP:
+            return {}
+        
+        text_lower = text.lower()
+        results = {}
+        
+        for term_key, data in TERMINOLOGY_MAP.items():
+            keywords_found = []
+            for kw in data['keywords']:
+                pattern = r'\b' + re.escape(kw.lower()) + r'\b'
+                if re.search(pattern, text_lower):
+                    keywords_found.append(kw)
+            
+            if keywords_found:
+                results[term_key] = {
+                    'keywords_found': keywords_found,
+                    'category': data['category'],
+                    'metric_ids': data.get('metric_ids', []),
+                    'standards': data.get('standards', {}),
+                    'boost': data.get('boost', 1.0)
+                }
+        
+        return results
+    
+    def get_metrics_for_extracted_terms(self, text):
+        """
+        Get list of applicable metric calculations based on terms found in text.
+        Returns list of unique metric_ids that can be calculated from the data.
+        """
+        terms_data = self.extract_terms_with_metrics(text)
+        all_metrics = set()
+        
+        for term_key, data in terms_data.items():
+            for metric_id in data.get('metric_ids', []):
+                all_metrics.add(metric_id)
+        
+        return list(all_metrics)
 
     def _extract_financial_numbers(self, text):
         """Extract financial numbers with context."""

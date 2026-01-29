@@ -36,12 +36,16 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Import parsers module
+PARSER_IMPORT_ERROR = None
 try:
     from parsers import FinancialParser, parse_file, parse_annual_report
     PARSER_AVAILABLE = True
     logger.info("parsers module loaded successfully")
 except ImportError as e:
     PARSER_AVAILABLE = False
+    PARSER_IMPORT_ERROR = str(e)
+    import traceback
+    traceback.print_exc()
     logger.warning(f"parsers module not available: {e}")
 
 # Import calculator module
@@ -62,6 +66,26 @@ try:
     logger.info("Flask loaded successfully")
 except ImportError:
     logger.warning("Flask not available - server mode disabled")
+
+# Import PyMuPDF for RAG text extraction
+try:
+    import fitz
+    FITZ_AVAILABLE = True
+except ImportError:
+    FITZ_AVAILABLE = False
+
+# Import RAG Engine (located in parent directory)
+try:
+    # Add parent directory to path for rag_engine import
+    _parent_dir = str(Path(__file__).parent.parent)
+    if _parent_dir not in sys.path:
+        sys.path.insert(0, _parent_dir)
+    from rag_engine import RAGEngine
+    RAG_AVAILABLE = True
+    logger.info("RAG Engine loaded successfully")
+except ImportError as e:
+    RAG_AVAILABLE = False
+    logger.warning(f"RAG Engine not available: {e}")
 
 
 # =============================================================================
@@ -102,7 +126,41 @@ class BackendService:
     
     def __init__(self):
         self.parser = FinancialParser() if PARSER_AVAILABLE else None
+        self.rag_engine = RAGEngine() if RAG_AVAILABLE else None
     
+    def _extract_text_for_rag(self, file_path: str, file_type: str) -> Optional[str]:
+        """Extract text from file for RAG indexing."""
+        if not os.path.exists(file_path):
+            return None
+            
+        try:
+            if file_type == 'pdf' and FITZ_AVAILABLE:
+                doc = fitz.open(file_path)
+                text = ""
+                for i, page in enumerate(doc):
+                    text += f"--- Page {i+1} ---\n{page.get_text()}\n"
+                doc.close()
+                return text
+            elif file_type in ['txt', 'csv', 'md']:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+            # Add other types if needed (xlsx could be converted to csv-like text)
+            return None
+        except Exception as e:
+            logger.warning(f"RAG text extraction failed: {e}")
+            return None
+
+    def search_rag(self, query: str) -> Dict:
+        """Search the indexed document using RAG."""
+        if not self.rag_engine:
+            return {"error": "RAG Engine not available"}
+        
+        try:
+            results_json = self.rag_engine.search(query)
+            return {"results": json.loads(results_json)}
+        except Exception as e:
+            return {"error": str(e)}
+
     def parse_file(self, file_path: str, file_type: Optional[str] = None) -> Dict:
         """
         Parse a financial document.
@@ -115,7 +173,7 @@ class BackendService:
             Parsed document data with standalone/consolidated structure
         """
         if not PARSER_AVAILABLE:
-            return {"error": "Parser module not available"}
+            return {"error": f"Parser module not available. Import Error: {PARSER_IMPORT_ERROR}"}
         
         try:
             # Detect file type if not provided
@@ -128,6 +186,13 @@ class BackendService:
             result = parse_file(file_path, file_type)
             
             logger.info(f"Parsed {len(result.get('items', []))} items")
+            
+            # Index for RAG if available
+            if self.rag_engine:
+                text = self._extract_text_for_rag(file_path, file_type)
+                if text:
+                    count_json = self.rag_engine.index_document(text)
+                    logger.info(f"RAG Indexing complete: {count_json}")
             
             return result
             
@@ -150,7 +215,7 @@ class BackendService:
             file_type: Optional file type override
         """
         if not PARSER_AVAILABLE:
-            return {"error": "Parser module not available"}
+            return {"error": f"Parser module not available. Import Error: {PARSER_IMPORT_ERROR}"}
         
         try:
             # Detect file type
@@ -169,30 +234,29 @@ class BackendService:
             except Exception:
                 decoded_content = content.encode('utf-8') if isinstance(content, str) else content
             
-            # For binary formats, write to temp file
-            if file_type in ['pdf', 'xlsx', 'xls', 'docx'] and is_base64:
-                with tempfile.NamedTemporaryFile(
-                    suffix=f'.{file_type}',
-                    delete=False
-                ) as tmp:
-                    tmp.write(decoded_content)
-                    tmp_path = tmp.name
-                
-                try:
-                    result = parse_file(tmp_path, file_type)
-                finally:
-                    os.unlink(tmp_path)
-            else:
-                # Text-based content
-                text_content = decoded_content.decode('utf-8', errors='replace') \
-                    if isinstance(decoded_content, bytes) else str(content)
-                
-                # Parse as text
-                if self.parser:
-                    result_json = self.parser.parse(text_content, file_type or 'txt')
-                    result = json.loads(result_json)
+            # write to temp file for all types to ensure parsers get a valid file path
+            suffix = f'.{file_type}' if file_type else ''
+            
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                delete=False,
+                mode='wb'
+            ) as tmp:
+                # Ensure we write bytes
+                if isinstance(decoded_content, str):
+                    tmp.write(decoded_content.encode('utf-8'))
                 else:
-                    result = {"items": [], "error": "Parser not initialized"}
+                    tmp.write(decoded_content)
+                tmp_path = tmp.name
+            
+            try:
+                # Use the service's parse_file method which handles everything
+                # This returns a Dict, so no json.loads needed
+                result = self.parse_file(tmp_path, file_type)
+            finally:
+                # Cleanup
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
             
             return result
             
@@ -355,6 +419,13 @@ class SidecarHandler:
                 return {"status": "error", "error": result["error"]}
             return {"status": "success", "message": "Mappings updated"}
         
+        elif command == "search":
+            query = request.get("query", "")
+            result = self.service.search_rag(query)
+            if "error" in result:
+                return {"status": "error", "error": result["error"]}
+            return {"status": "success", "data": result}
+        
         else:
             return {"status": "error", "error": f"Unknown command: {command}"}
     
@@ -388,6 +459,27 @@ def create_flask_app(service: BackendService) -> 'Flask':
     def api_health():
         return jsonify(service.health_check())
     
+    # Search endpoint
+    @app.route('/search', methods=['POST'])
+    @app.route('/api/search', methods=['POST'])
+    def search():
+        try:
+            data = request.get_json() or {}
+            query = data.get("query", "")
+            
+            if not query:
+                return jsonify({"error": "No query provided"}), 400
+            
+            result = service.search_rag(query)
+            
+            if "error" in result:
+                return jsonify(result), 500
+            
+            return jsonify(result)
+        except Exception as e:
+            logger.error(f"Search endpoint error: {traceback.format_exc()}")
+            return jsonify({"error": str(e)}), 500
+
     # Parse endpoint
     @app.route('/parse', methods=['POST'])
     @app.route('/api/parse', methods=['POST'])

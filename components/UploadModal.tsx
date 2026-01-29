@@ -11,7 +11,7 @@ interface UploadModalProps {
 export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUploadSuccess }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<{ name: string; path: string; type: string; content?: string } | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<{ name: string; path: string; type: string; content?: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [useFallback, setUseFallback] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -19,63 +19,60 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
   if (!isOpen) return null;
 
   const handleNativeFileSelect = async () => {
-    // Check if running in Tauri (Desktop)
-    // @ts-ignore
-    const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+    fileInputRef.current?.click();
+  };
 
-    if (!isTauri || useFallback) {
-      // Browser or Fallback: Click hidden input immediately (sync) to avoid popup blocker
-      fileInputRef.current?.click();
-      return;
-    }
+  const processFiles = (fileList: FileList | File[]) => {
+    const newFiles = Array.from(fileList);
+    const processedFiles: { name: string; path: string; type: string; content?: string }[] = [];
 
-    // Desktop: Try native dialog
-    try {
-      const result = await open({
-        multiple: false,
-        filters: [{
-          name: 'Financial Documents',
-          extensions: ['pdf', 'txt', 'csv', 'xbrl', 'xml', 'xlsx']
-        }]
-      });
+    let processedCount = 0;
 
-      if (result && typeof result === 'string') {
-        const fileName = result.split('/').pop() || result.split('\\').pop() || 'document';
-        const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    newFiles.forEach(file => {
+      const fileName = file.name;
+      const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-        setSelectedFile({
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const base64Content = result.includes(',') ? result.split(',')[1] : result;
+
+        processedFiles.push({
           name: fileName,
-          path: result,
-          type: ext
+          path: file.name, // Use name as path for display/reference
+          type: ext,
+          content: base64Content
         });
-        setError(null);
-      } else if (result === null) {
-        // User cancelled, do nothing
-      }
-    } catch (e) {
-      console.warn('Native file dialog failed. Enabling fallback.', e);
-      setUseFallback(true);
-      // We cannot trigger click() reliably in async catch on some platforms. 
-      // Ask user to retry which will hit the sync path.
-      setError("System picker failed. Click this area again to use the browser selector.");
-    }
+
+        processedCount++;
+        if (processedCount === newFiles.length) {
+          setSelectedFiles(prev => [...prev, ...processedFiles]);
+          setError(null);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
-    setIsProcessing(true);
-    setError(null);
+    // Close immediately to show processing state in main UI
+    onClose();
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      onUploadSuccess(selectedFile.path, selectedFile.type, selectedFile.name, selectedFile.content);
-      onClose();
+      // Process files one by one
+      for (const file of selectedFiles) {
+        await onUploadSuccess(file.path, file.type, file.name, file.content);
+      }
     } catch (e) {
-      setError('Failed to process file');
-    } finally {
-      setIsProcessing(false);
+      console.error('Upload failed:', e);
+      // In a real app, you might want to show a global toast notification here
     }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const getFileIcon = (type: string) => {
@@ -92,12 +89,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg glass-modal p-6 animate-fadeInScale">
+      <div className="relative w-full max-w-lg glass-modal p-6 animate-fadeInScale flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 shrink-0">
           <div>
             <h2 className="text-lg font-semibold text-primary">Upload Document</h2>
-            <p className="text-sm text-tertiary mt-0.5">Select a financial document to analyze</p>
+            <p className="text-sm text-tertiary mt-0.5">Select financial documents to analyze</p>
           </div>
           <button onClick={onClose} className="btn-icon">
             <X className="w-5 h-5" />
@@ -109,84 +106,89 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
           onClick={handleNativeFileSelect}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setIsDragging(false); }}
-          className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${isDragging
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              processFiles(e.dataTransfer.files);
+            }
+          }}
+          className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all shrink-0 ${isDragging
             ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5'
-            : selectedFile
-              ? 'border-[var(--color-success)] bg-[var(--color-success-bg)]'
-              : 'border-[var(--border-default)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]'
+            : 'border-[var(--border-default)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]'
             }`}
         >
-          {selectedFile ? (
-            <div className="flex flex-col items-center animate-fadeIn">
-              {getFileIcon(selectedFile.type)}
-              <p className="text-sm font-medium text-primary mt-3">{selectedFile.name}</p>
-              <p className="text-xs text-tertiary mt-1">Click to change file</p>
+          <div className="flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-[var(--accent-primary)]/10 flex items-center justify-center mb-4">
+              <Upload className="w-7 h-7 text-accent" />
             </div>
-          ) : (
-            <div className="flex flex-col items-center">
-              <div className="w-16 h-16 rounded-2xl bg-[var(--accent-primary)]/10 flex items-center justify-center mb-4">
-                <Upload className="w-7 h-7 text-accent" />
-              </div>
-              <p className="text-sm font-medium text-primary">Click to select a file</p>
-              <p className="text-xs text-tertiary mt-1">PDF, CSV, TXT, XLSX, XBRL supported</p>
-            </div>
-          )}
+            <p className="text-sm font-medium text-primary">Click to select files</p>
+            <p className="text-xs text-tertiary mt-1">PDF, CSV, TXT, XLSX, XBRL, MD supported</p>
+          </div>
         </div>
+
+        {/* Selected Files List */}
+        {selectedFiles.length > 0 && (
+          <div className="mt-4 flex-1 overflow-y-auto custom-scrollbar min-h-0 border-t border-[var(--border-default)] pt-4">
+            <h3 className="text-xs font-semibold text-tertiary uppercase tracking-wider mb-2">Selected Files ({selectedFiles.length})</h3>
+            <div className="space-y-2">
+              {selectedFiles.map((file, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)] animate-fadeIn">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    {getFileIcon(file.type)}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-primary truncate">{file.name}</p>
+                      <p className="text-xs text-tertiary">{Math.round((file.content?.length || 0) * 0.75 / 1024)} KB</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                    className="p-1 text-tertiary hover:text-error hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Hidden File Input for Browser Fallback */}
         <input
           type="file"
           ref={fileInputRef}
           className="hidden"
-          accept=".pdf,.txt,.csv,.xbrl,.xml,.xlsx"
+          multiple
+          accept=".pdf,.txt,.csv,.xbrl,.xml,.xlsx,.md"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-              const fileName = file.name;
-              const ext = fileName.split('.').pop()?.toLowerCase() || '';
-
-              const reader = new FileReader();
-              reader.onload = () => {
-                const result = reader.result as string;
-                const base64Content = result.includes(',') ? result.split(',')[1] : result;
-
-                setSelectedFile({
-                  name: fileName,
-                  path: file.name,
-                  type: ext,
-                  content: base64Content
-                });
-              };
-              reader.readAsDataURL(file);
-
-              setError(null);
+            if (e.target.files && e.target.files.length > 0) {
+              processFiles(e.target.files);
             }
           }}
         />
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 mt-4 p-3 rounded-xl bg-[var(--color-error-bg)] border border-[var(--color-error-border)] animate-fadeIn">
+          <div className="flex items-center gap-2 mt-4 p-3 rounded-xl bg-[var(--color-error-bg)] border border-[var(--color-error-border)] animate-fadeIn shrink-0">
             <AlertCircle className="w-4 h-4 text-error flex-shrink-0" />
             <p className="text-sm text-error">{error}</p>
           </div>
         )}
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-3 mt-6">
+        <div className="flex items-center justify-end gap-3 mt-6 shrink-0">
           <button onClick={onClose} className="btn-secondary">
             Cancel
           </button>
           <button
             onClick={handleUpload}
-            disabled={!selectedFile || isProcessing}
+            disabled={selectedFiles.length === 0 || isProcessing}
             className="btn-primary"
           >
             {isProcessing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Processing...</span>
+                <span>Processing {selectedFiles.length} files...</span>
               </>
             ) : (
               <>

@@ -18,6 +18,21 @@ export const OTHER_COMPREHENSIVE_INCOME_TERMS: TermMapping[] = [
         ]
     },
     {
+        id: 'other_comprehensive_income',
+        category: 'Other Comprehensive Income',
+        key: 'other_comprehensive_income',
+        label: 'Other Comprehensive Income',
+        keywords_indas: [
+            'other comprehensive income', 'oci', 'other comprehensive income loss'
+        ],
+        keywords_gaap: [
+            'other comprehensive income', 'oci', 'other comprehensive income net of tax'
+        ],
+        keywords_ifrs: [
+            'other comprehensive income', 'oci'
+        ]
+    },
+    {
         id: 'oci_items_reclassified',
         category: 'Other Comprehensive Income',
         key: 'oci_items_reclassified',
@@ -47,6 +62,73 @@ export const OTHER_COMPREHENSIVE_INCOME_TERMS: TermMapping[] = [
         ],
         keywords_ifrs: [
             'items that will not be reclassified to profit or loss'
+        ]
+    },
+    {
+        id: 'change_in_unrealized_gains_derivatives',
+        category: 'Other Comprehensive Income',
+        key: 'change_in_unrealized_gains_derivatives',
+        label: 'Change in Unrealized Gains/Losses on Derivative Instruments',
+        keywords_indas: [
+            'change in unrealized gains losses on derivative instruments',
+            'effective portion of gains and losses on hedging instruments',
+            'cash flow hedge reserve movement', 'derivative hedging gains losses'
+        ],
+        keywords_gaap: [
+            'change in unrealized gains losses on derivative instruments',
+            'total change in unrealized gains losses on derivative instruments',
+            'unrealized gains on derivative instruments',
+            'change in fair value of derivative instruments'
+        ],
+        keywords_ifrs: [
+            'cash flow hedges', 'effective portion of cash flow hedges',
+            'change in fair value of hedging instruments'
+        ],
+        related_standards: {
+            indas: ['IndAS 109'],
+            gaap: ['ASC 815'],
+            ifrs: ['IFRS 9']
+        }
+    },
+    {
+        id: 'change_in_unrealized_gains_marketable_securities',
+        category: 'Other Comprehensive Income',
+        key: 'change_in_unrealized_gains_marketable_securities',
+        label: 'Change in Unrealized Gains/Losses on Marketable Securities',
+        keywords_indas: [
+            'fair value changes on fvtoci investments',
+            'changes in fair value of equity instruments through oci'
+        ],
+        keywords_gaap: [
+            'change in unrealized gains losses on marketable securities',
+            'unrealized gains on marketable debt securities',
+            'unrealized gains losses on available for sale securities',
+            'net unrealized gains losses on investments'
+        ],
+        keywords_ifrs: [
+            'fair value gains losses on fvtoci financial assets',
+            'changes in fair value of equity investments at fvtoci'
+        ],
+        related_standards: {
+            indas: ['IndAS 109'],
+            gaap: ['ASC 320'],
+            ifrs: ['IFRS 9']
+        }
+    },
+    {
+        id: 'adjustment_for_net_gains_realized',
+        category: 'Other Comprehensive Income',
+        key: 'adjustment_for_net_gains_realized',
+        label: 'Adjustment for Net Gains Realized',
+        keywords_indas: [
+            'amounts reclassified to profit or loss'
+        ],
+        keywords_gaap: [
+            'adjustment for net gains realized and included in net income',
+            'reclassification adjustments'
+        ],
+        keywords_ifrs: [
+            'reclassified to net income', 'amounts reclassified to profit or loss'
         ]
     },
     {
@@ -129,7 +211,8 @@ export const OTHER_COMPREHENSIVE_INCOME_TERMS: TermMapping[] = [
         ],
         keywords_gaap: [
             'foreign currency translation adjustments',
-            'cumulative translation adjustment change'
+            'cumulative translation adjustment change',
+            'foreign currency translation adjustment'
         ],
         keywords_ifrs: [
             'exchange differences on translating foreign operations',
