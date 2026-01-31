@@ -1,1163 +1,504 @@
 """
-Terminology Keywords Module - Aligned with TypeScript Terminology Map
-Maps financial terms to metrics with universal keywords across IndAS, GAAP, IFRS
+Unified Comprehensive Terminology Keywords Module
+Maps financial terms to metrics with all synonyms from the complete cross-sectional database.
+All keywords from all accounting standards (IndAS, GAAP, IFRS) are unified and cross-referenced.
 """
 
-# Universalized terminology structure matching library/terms/*.ts
-# Format: term_key -> { keywords: [], category, metric_ids, boost }
-
-TERMINOLOGY_MAP = {
-    # ===== INCOME STATEMENT TERMS =====
-    'total_revenue': {
-        'category': 'Income Statement',
-        'keywords': [
-            'revenue from operations', 'total revenue', 'revenue', 'turnover',
-            'gross revenue', 'operating revenue', 'income from operations',
-            'sales revenue', 'revenue from contracts with customers',
-            'net revenue', 'net revenues', 'net sales', 'total net sales',
-            'product revenue', 'service revenue', 'subscription revenue',
-            'revenue from ordinary activities', 'sale of goods', 'rendering of services'
-        ],
-        'metric_ids': ['calc_revenue_growth', 'calc_ps_ratio', 'calc_ev_to_sales'],
-        'boost': 2.2,
-        'standards': {'indas': ['IndAS 115'], 'gaap': ['ASC 606'], 'ifrs': ['IFRS 15']}
-    },
-    'cost_of_goods_sold': {
-        'category': 'Income Statement',
-        'keywords': [
-            'cost of materials consumed', 'cost of goods sold', 'cost of sales',
-            'purchases of stock-in-trade', 'raw materials consumed', 'cogs',
-            'cost of revenue', 'direct costs', 'cost of products sold',
-            'cost of goods manufactured', 'manufacturing cost'
-        ],
-        'metric_ids': ['calc_gross_profit', 'calc_gross_margin', 'calc_inventory_turnover'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 2'], 'gaap': ['ASC 330'], 'ifrs': ['IAS 2']}
-    },
-    'gross_profit': {
-        'category': 'Income Statement',
-        'keywords': [
-            'gross profit', 'gross margin', 'gross income', 'trading profit', 'gross surplus'
-        ],
-        'metric_ids': ['calc_gross_profit', 'calc_gross_margin', 'calc_gross_profitability'],
-        'boost': 2.0
-    },
-    'operating_profit': {
-        'category': 'Income Statement',
-        'keywords': [
-            'profit from operations', 'operating profit', 'ebit', 'operating income',
-            'earnings before interest and tax', 'profit before finance costs',
-            'income from operations', 'operating earnings'
-        ],
-        'metric_ids': ['calc_operating_income', 'calc_operating_margin', 'calc_ebit_margin'],
-        'boost': 2.2
-    },
-    'ebitda': {
-        'category': 'Income Statement',
-        'keywords': [
-            'ebitda', 'earnings before interest tax depreciation amortization',
-            'operating profit before depreciation', 'adjusted ebitda'
-        ],
-        'metric_ids': ['calc_ebitda', 'calc_ebitda_margin', 'calc_ev_to_ebitda', 'calc_debt_to_ebitda'],
-        'boost': 2.3
-    },
-    'depreciation_amortization': {
-        'category': 'Income Statement',
-        'keywords': [
-            'depreciation and amortisation expense', 'depreciation and amortization',
-            'depreciation expense', 'amortisation expense', 'amortization', 'd&a',
-            'depreciation on property plant and equipment', 'amortisation of intangible assets'
-        ],
-        'metric_ids': ['calc_ebitda', 'calc_fcf', 'calc_owner_earnings'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 16', 'IndAS 38'], 'gaap': ['ASC 350', 'ASC 360'], 'ifrs': ['IAS 16', 'IAS 38']}
-    },
-    'finance_costs': {
-        'category': 'Income Statement',
-        'keywords': [
-            'finance costs', 'finance cost', 'interest expense', 'interest on borrowings',
-            'interest on term loans', 'borrowing costs', 'debt service cost',
-            'interest on lease liabilities', 'unwinding of discount'
-        ],
-        'metric_ids': ['calc_interest_coverage', 'calc_tie', 'calc_dscr'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 23'], 'gaap': ['ASC 835'], 'ifrs': ['IAS 23']}
-    },
-    'profit_before_tax': {
-        'category': 'Income Statement',
-        'keywords': [
-            'profit before tax', 'pbt', 'profit before taxation',
-            'income before taxes', 'pretax income', 'earnings before tax', 'pre-tax profit',
-            'income before provision for income taxes'
-        ],
-        'metric_ids': ['calc_pre_tax_margin', 'calc_tax_burden'],
-        'boost': 2.0
-    },
-    'tax_expense': {
-        'category': 'Income Statement',
-        'keywords': [
-            'tax expense', 'income tax expense', 'current tax', 'deferred tax',
-            'provision for taxation', 'income taxes', 'tax provision', 'tax charge',
-            'provision for income taxes'
-        ],
-        'metric_ids': ['calc_nopat', 'calc_after_tax_margin'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'profit_after_tax': {
-        'category': 'Income Statement',
-        'keywords': [
-            'profit after tax', 'profit for the year', 'profit for the period',
-            'net profit', 'pat', 'net income', 'net earnings', 'bottom line',
-            'profit attributable to owners', 'income after taxes'
-        ],
-        'metric_ids': ['calc_net_income', 'calc_net_profit_margin', 'calc_eps', 'calc_roe', 'calc_roa'],
-        'boost': 2.2
-    },
-    'employee_benefits_expense': {
-        'category': 'Income Statement',
-        'keywords': [
-            'employee benefit expense', 'employee benefits expense', 'employee cost',
-            'staff cost', 'personnel expenses', 'salaries and wages', 'salary expense',
-            'compensation and benefits', 'payroll expense', 'stock-based compensation'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 19'], 'gaap': ['ASC 715'], 'ifrs': ['IAS 19']}
-    },
-    'research_development': {
-        'category': 'Income Statement',
-        'keywords': [
-            'research and development', 'r&d expense', 'r&d', 'research expense',
-            'development costs', 'research and development expenses'
-        ],
-        'metric_ids': [],
-        'boost': 1.8
-    },
-    'other_income': {
-        'category': 'Income Statement',
-        'keywords': [
-            'other income', 'other operating income', 'non-operating income',
-            'sundry income', 'miscellaneous income', 'interest income',
-            'dividend income', 'other income net'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-
-    # ===== BALANCE SHEET - ASSETS =====
-    'total_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'total assets', 'assets total', 'gross assets',
-            'total assets end of year'
-        ],
-        'metric_ids': ['calc_roa', 'calc_debt_to_assets', 'calc_asset_turnover', 'calc_equity_multiplier'],
-        'boost': 2.0
-    },
-    'total_non_current_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'total non-current assets', 'non-current assets', 'non current assets',
-            'fixed assets total', 'long-term assets', 'capital assets',
-            'total long-term assets'
-        ],
-        'metric_ids': ['calc_fixed_asset_turnover'],
-        'boost': 2.0
-    },
-    'property_plant_equipment': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'property plant and equipment', 'ppe', 'fixed assets', 'tangible assets',
-            'land and buildings', 'plant and machinery', 'pp&e',
-            'capital work in progress', 'cwip', 'assets under construction',
-            'property and equipment net', 'net property plant and equipment'
-        ],
-        'metric_ids': ['calc_fixed_asset_turnover', 'calc_rotc'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 16'], 'gaap': ['ASC 360'], 'ifrs': ['IAS 16']}
-    },
-    'intangible_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'intangible assets', 'goodwill', 'software', 'patents', 'trademarks',
-            'copyrights', 'licenses', 'brand value', 'customer relationships',
-            'technical know-how', 'franchise', 'development costs',
-            'acquired intangible assets', 'net intangible assets'
-        ],
-        'metric_ids': ['calc_tangible_book_value', 'calc_tangible_bvps'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 38'], 'gaap': ['ASC 350'], 'ifrs': ['IAS 38']}
-    },
-    'goodwill': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'goodwill', 'goodwill net', 'acquired goodwill',
-            'goodwill on consolidation', 'goodwill arising on acquisition'
-        ],
-        'metric_ids': ['calc_tangible_book_value'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 103', 'IndAS 36'], 'gaap': ['ASC 350', 'ASC 805'], 'ifrs': ['IAS 36', 'IFRS 3']}
-    },
-    'right_of_use_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'right of use assets', 'right-of-use assets', 'rou assets',
-            'leased assets', 'lease assets', 'operating lease right of use',
-            'operating lease right-of-use assets'
-        ],
-        'metric_ids': [],
-        'boost': 2.2,
-        'standards': {'indas': ['IndAS 116'], 'gaap': ['ASC 842'], 'ifrs': ['IFRS 16']}
-    },
-    'deferred_tax_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'deferred tax assets', 'deferred tax asset', 'dta',
-            'deferred income tax assets', 'net deferred tax assets'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'marketable_securities': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'marketable securities', 'short-term investments', 'current marketable securities',
-            'non-current marketable securities', 'trading securities',
-            'available for sale securities', 'held to maturity securities'
-        ],
-        'metric_ids': ['calc_quick_ratio'],
-        'boost': 1.8
-    },
-    'vendor_non_trade_receivables': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'vendor non-trade receivables', 'other receivables',
-            'non-trade receivables', 'vendor receivables'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'other_non_current_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'other non-current assets', 'other long-term assets',
-            'long-term deposits', 'capital advances', 'other assets non-current'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'total_current_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'total current assets', 'current assets', 'current assets total'
-        ],
-        'metric_ids': ['calc_current_ratio', 'calc_quick_ratio', 'calc_working_capital'],
-        'boost': 1.8
-    },
-    'inventories': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'inventories', 'inventory', 'stock in trade', 'raw materials',
-            'work in progress', 'wip', 'finished goods', 'stores and spares',
-            'merchandise inventory', 'goods in transit'
-        ],
-        'metric_ids': ['calc_inventory_turnover', 'calc_dio', 'calc_quick_ratio'],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 2'], 'gaap': ['ASC 330'], 'ifrs': ['IAS 2']}
-    },
-    'trade_receivables': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'trade receivables', 'sundry debtors', 'accounts receivable',
-            'receivables from customers', 'bills receivable', 'customer receivables',
-            'receivables', 'debtors', 'net receivables', 'accounts receivable net'
-        ],
-        'metric_ids': ['calc_receivables_turnover', 'calc_dso', 'calc_quick_ratio'],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 109'], 'gaap': ['ASC 310'], 'ifrs': ['IFRS 9']}
-    },
-    'cash_and_equivalents': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'cash and cash equivalents', 'cash and bank balances', 'bank balances',
-            'cash on hand', 'balances with banks', 'cash equivalents',
-            'short-term deposits', 'fixed deposits', 'liquid investments', 'cash'
-        ],
-        'metric_ids': ['calc_cash_ratio', 'calc_net_debt', 'calc_net_debt_to_ebitda'],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 7'], 'gaap': ['ASC 230'], 'ifrs': ['IAS 7']}
-    },
-    'other_current_assets': {
-        'category': 'Balance Sheet - Assets',
-        'keywords': [
-            'other current assets', 'prepaid expenses', 'advance payments',
-            'prepaid expenses and other current assets', 'other receivables'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-
-    # ===== BALANCE SHEET - LIABILITIES =====
-    'total_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'total liabilities', 'liabilities total'
-        ],
-        'metric_ids': ['calc_debt_to_assets', 'calc_book_value'],
-        'boost': 1.8
-    },
-    'total_non_current_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'total non-current liabilities', 'non-current liabilities',
-            'long-term liabilities', 'non current liabilities total'
-        ],
-        'metric_ids': ['calc_debt_to_equity'],
-        'boost': 1.8
-    },
-    'total_current_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'total current liabilities', 'current liabilities', 'current liabilities total'
-        ],
-        'metric_ids': ['calc_current_ratio', 'calc_quick_ratio', 'calc_working_capital', 'calc_ocf_to_cl'],
-        'boost': 1.8
-    },
-    'borrowings': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'borrowings', 'loans', 'term loans', 'bank borrowings',
-            'long-term debt', 'short-term debt', 'total debt',
-            'notes payable', 'bonds payable', 'debentures', 'term debt'
-        ],
-        'metric_ids': ['calc_debt_to_equity', 'calc_debt_to_ebitda', 'calc_interest_coverage'],
-        'boost': 2.0
-    },
-    'commercial_paper': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'commercial paper', 'short-term commercial paper',
-            'cp borrowings', 'unsecured commercial paper'
-        ],
-        'metric_ids': [],
-        'boost': 1.8
-    },
-    'trade_payables': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'trade payables', 'sundry creditors', 'accounts payable',
-            'payables to suppliers', 'creditors', 'bills payable'
-        ],
-        'metric_ids': ['calc_payables_turnover', 'calc_dpo', 'calc_ccc'],
-        'boost': 1.8
-    },
-    'deferred_revenue': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'deferred revenue', 'unearned revenue', 'contract liabilities',
-            'advance from customers', 'deferred income'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 115'], 'gaap': ['ASC 606'], 'ifrs': ['IFRS 15']}
-    },
-    'lease_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'lease liabilities', 'lease liability', 'lease obligations',
-            'operating lease liability', 'finance lease liability',
-            'operating lease liabilities', 'finance lease liabilities'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 116'], 'gaap': ['ASC 842'], 'ifrs': ['IFRS 16']}
-    },
-    'deferred_tax_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'deferred tax liabilities', 'deferred tax liability', 'dtl',
-            'deferred income tax liabilities', 'net deferred tax liabilities'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'other_non_current_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'other non-current liabilities', 'other long-term liabilities'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'other_current_liabilities': {
-        'category': 'Balance Sheet - Liabilities',
-        'keywords': [
-            'other current liabilities', 'accrued expenses',
-            'other accrued liabilities', 'accrued liabilities'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-
-    # ===== BALANCE SHEET - EQUITY =====
-    'total_equity': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'total equity', 'shareholders equity', 'shareholders funds',
-            'stockholders equity', 'net worth', 'owners equity',
-            'equity attributable to owners', 'total shareholders equity',
-            "total shareholders' equity"
-        ],
-        'metric_ids': ['calc_roe', 'calc_debt_to_equity', 'calc_book_value_per_share', 'calc_pb_ratio'],
-        'boost': 2.0
-    },
-    'share_capital': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'share capital', 'equity share capital', 'issued capital',
-            'paid up capital', 'common stock', 'ordinary shares', 'capital stock',
-            'common stock and additional paid-in capital', 'class a common stock',
-            'class b common stock'
-        ],
-        'metric_ids': ['calc_shares_outstanding'],
-        'boost': 1.8
-    },
-    'additional_paid_in_capital': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'additional paid-in capital', 'share premium', 'apic',
-            'capital surplus', 'paid-in capital in excess of par',
-            'securities premium'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'retained_earnings': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'retained earnings', 'accumulated profits', 'surplus',
-            'accumulated deficit', 'undistributed profits', 'reserves and surplus',
-            'accumulated earnings (deficit)', 'reinvested earnings'
-        ],
-        'metric_ids': ['calc_retention_ratio', 'calc_sgr'],
-        'boost': 1.8
-    },
-    'accumulated_oci': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'accumulated other comprehensive income', 'aoci',
-            'accumulated other comprehensive income loss',
-            'other comprehensive income accumulated', 'oci reserve'
-        ],
-        'metric_ids': [],
-        'boost': 1.8
-    },
-    'treasury_stock': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'treasury stock', 'treasury shares', 'shares in treasury',
-            'buyback of shares', 'cost of treasury stock', 'own shares held'
-        ],
-        'metric_ids': [],
-        'boost': 1.8
-    },
-    'non_controlling_interest': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'non-controlling interests', 'non controlling interest', 'nci',
-            'minority interest', 'equity attributable to non-controlling interests'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 110'], 'gaap': ['ASC 810'], 'ifrs': ['IFRS 10']}
-    },
-    'equity_beginning_balance': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'beginning balance', 'opening balance', 'balance at beginning of year',
-            'balances at beginning of period', 'equity beginning of period'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'equity_ending_balance': {
-        'category': 'Balance Sheet - Equity',
-        'keywords': [
-            'ending balance', 'closing balance', 'balance at end of year',
-            'balances at end of period', 'ending balances', 'equity ending balance'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-
-    # ===== STATEMENT OF COMPREHENSIVE INCOME =====
-    'total_comprehensive_income': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'total comprehensive income', 'comprehensive income',
-            'comprehensive income for the year', 'comprehensive income for the period',
-            'total comprehensive income for the period'
-        ],
-        'metric_ids': [],
-        'boost': 2.0
-    },
-    'other_comprehensive_income': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'other comprehensive income', 'oci', 'other comprehensive income loss',
-            'other comprehensive income net of tax'
-        ],
-        'metric_ids': [],
-        'boost': 2.0
-    },
-    'change_in_unrealized_gains_marketable_securities': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'change in unrealized gains losses on marketable securities',
-            'unrealized gains on marketable debt securities',
-            'unrealized gains losses on available for sale securities',
-            'net unrealized gains losses on investments',
-            'change in fair value of marketable securities'
-        ],
-        'metric_ids': [],
-        'boost': 2.0
-    },
-    'change_in_unrealized_gains_derivatives': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'change in unrealized gains losses on derivative instruments',
-            'total change in unrealized gains losses on derivative instruments',
-            'change in fair value of derivative instruments',
-            'effective portion of gains and losses on hedging instruments',
-            'cash flow hedge reserve movement', 'derivative hedging gains losses',
-            'unrealized gains on derivative instruments'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 109'], 'gaap': ['ASC 815'], 'ifrs': ['IFRS 9']}
-    },
-    'adjustment_for_net_gains_realized': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'adjustment for net gains realized and included in net income',
-            'reclassification adjustments', 'amounts reclassified to profit or loss',
-            'reclassified to net income'
-        ],
-        'metric_ids': [],
-        'boost': 1.8
-    },
-    'foreign_currency_translation': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'foreign currency translation adjustment', 'foreign currency translation',
-            'exchange differences on translation of foreign operations',
-            'cumulative translation adjustment', 'translation reserve movement'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 21'], 'gaap': ['ASC 830'], 'ifrs': ['IAS 21']}
-    },
-    'remeasurement_pension_plans': {
-        'category': 'Comprehensive Income',
-        'keywords': [
-            'remeasurement of defined benefit plans', 'actuarial gains losses',
-            'pension adjustments', 'postretirement benefit adjustments',
-            'remeasurement of post-employment benefit obligations'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 19'], 'gaap': ['ASC 715'], 'ifrs': ['IAS 19']}
-    },
-
-    # ===== CASH FLOW STATEMENT =====
-    'operating_cash_flow': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'cash flow from operating activities', 'operating cash flow',
-            'cash generated from operations', 'net cash from operating activities',
-            'ocf', 'cfo', 'cash flows from operations',
-            'cash generated by operating activities'
-        ],
-        'metric_ids': ['calc_ocf', 'calc_fcf', 'calc_ocf_ratio', 'calc_cash_roa', 'calc_earnings_quality'],
-        'boost': 2.2,
-        'standards': {'indas': ['IndAS 7'], 'gaap': ['ASC 230'], 'ifrs': ['IAS 7']}
-    },
-    'investing_cash_flow': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'cash flow from investing activities', 'investing cash flow',
-            'net cash used in investing activities', 'capital expenditure',
-            'capex', 'purchase of fixed assets', 'acquisition of ppe',
-            'cash used in investing activities'
-        ],
-        'metric_ids': ['calc_fcf', 'calc_fcfe', 'calc_fcff'],
-        'boost': 2.0
-    },
-    'financing_cash_flow': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'cash flow from financing activities', 'financing cash flow',
-            'net cash from financing activities', 'proceeds from borrowings',
-            'repayment of borrowings', 'dividend paid', 'buyback',
-            'cash used in financing activities'
-        ],
-        'metric_ids': ['calc_fcfe', 'calc_shareholder_yield'],
-        'boost': 2.0
-    },
-    'free_cash_flow': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'free cash flow', 'fcf', 'free cash flow to firm', 'fcff',
-            'free cash flow to equity', 'fcfe', 'unlevered free cash flow'
-        ],
-        'metric_ids': ['calc_fcf', 'calc_fcfe', 'calc_fcff', 'calc_ev_to_fcf', 'calc_fcf_margin'],
-        'boost': 2.3
-    },
-    'capital_expenditure': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'capital expenditure', 'capex', 'purchases of property plant and equipment',
-            'payments for acquisition of property', 'investments in property and equipment',
-            'acquisition of fixed assets'
-        ],
-        'metric_ids': ['calc_fcf', 'calc_capex_ratio'],
-        'boost': 2.0
-    },
-    'dividends_paid': {
-        'category': 'Cash Flow Statement',
-        'keywords': [
-            'dividends paid', 'dividend paid', 'cash dividends paid',
-            'dividends paid to shareholders', 'distribution to shareholders'
-        ],
-        'metric_ids': ['calc_dividend_payout', 'calc_shareholder_yield'],
-        'boost': 2.0
-    },
-
-    # ===== FINANCIAL RATIOS & PER SHARE DATA =====
-    'earnings_per_share': {
-        'category': 'Financial Ratios',
-        'keywords': [
-            'earnings per share', 'eps', 'basic eps', 'diluted eps',
-            'basic earnings per share', 'diluted earnings per share'
-        ],
-        'metric_ids': ['calc_eps', 'calc_diluted_eps', 'calc_pe_ratio', 'calc_peg_ratio'],
-        'boost': 2.2,
-        'standards': {'indas': ['IndAS 33'], 'gaap': ['ASC 260'], 'ifrs': ['IAS 33']}
-    },
-    'dividend_per_share': {
-        'category': 'Financial Ratios',
-        'keywords': [
-            'dividend per share', 'dps', 'dividend per equity share',
-            'dividends and dividend equivalents declared per share or rsu',
-            'dividends declared per share', 'cash dividends per share',
-            'dividend declared per common share'
-        ],
-        'metric_ids': ['calc_dps', 'calc_dividend_yield', 'calc_dividend_payout'],
-        'boost': 1.8
-    },
-    'book_value_per_share': {
-        'category': 'Financial Ratios',
-        'keywords': [
-            'book value per share', 'bvps', 'net asset value per share', 'nav per share'
-        ],
-        'metric_ids': ['calc_book_value_per_share', 'calc_pb_ratio', 'calc_graham_number'],
-        'boost': 1.8
-    },
-    'market_price': {
-        'category': 'Market Data',
-        'keywords': [
-            'market price', 'share price', 'stock price', 'current price',
-            'closing price', 'market value per share'
-        ],
-        'metric_ids': ['calc_pe_ratio', 'calc_pb_ratio', 'calc_ps_ratio', 'calc_market_cap'],
-        'boost': 1.5
-    },
-    'shares_outstanding': {
-        'category': 'Market Data',
-        'keywords': [
-            'shares outstanding', 'number of shares', 'equity shares outstanding',
-            'weighted average shares', 'common shares outstanding', 'shares in issue',
-            'shares used in computing diluted earnings per share',
-            'shares used in computing basic earnings per share'
-        ],
-        'metric_ids': ['calc_eps', 'calc_market_cap', 'calc_book_value_per_share'],
-        'boost': 1.8
-    },
-
-    # ===== STATEMENT OF CHANGES IN EQUITY =====
-    'common_stock_issued': {
-        'category': 'Changes in Equity',
-        'keywords': [
-            'common stock issued', 'shares issued', 'issuance of common stock',
-            'proceeds from issuance of shares', 'new shares issued'
-        ],
-        'metric_ids': [],
-        'boost': 1.5
-    },
-    'share_based_compensation': {
-        'category': 'Changes in Equity',
-        'keywords': [
-            'share-based compensation', 'stock-based compensation',
-            'esop expense', 'equity compensation', 'stock option expense',
-            'share options outstanding'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 102'], 'gaap': ['ASC 718'], 'ifrs': ['IFRS 2']}
-    },
-    'repurchases_of_common_stock': {
-        'category': 'Changes in Equity',
-        'keywords': [
-            'repurchases of common stock', 'share buyback', 'treasury stock purchases',
-            'buyback of shares', 'stock repurchases', 'shares repurchased'
-        ],
-        'metric_ids': ['calc_shareholder_yield'],
-        'boost': 1.8
-    },
-    'dividends_declared': {
-        'category': 'Changes in Equity',
-        'keywords': [
-            'dividends and dividend equivalents declared',
-            'dividends declared', 'cash dividends declared',
-            'dividends and dividend equivalents declared per share or rsu'
-        ],
-        'metric_ids': ['calc_dividend_payout', 'calc_dividend_yield'],
-        'boost': 2.0
-    },
-
-    # ===== SPECIAL IndAS/GAAP/IFRS TERMS =====
-    'expected_credit_loss': {
-        'category': 'Financial Instruments',
-        'keywords': [
-            'expected credit loss', 'ecl', 'ecl provision', 'impairment allowance',
-            'provision for expected credit losses', 'credit loss allowance'
-        ],
-        'metric_ids': [],
-        'boost': 2.3,
-        'standards': {'indas': ['IndAS 109'], 'gaap': ['ASC 326'], 'ifrs': ['IFRS 9']}
-    },
-    'fair_value': {
-        'category': 'Fair Value',
-        'keywords': [
-            'fair value', 'fair value measurement', 'fvtpl', 'fvoci',
-            'level 1', 'level 2', 'level 3', 'fair value hierarchy',
-            'observable inputs', 'unobservable inputs', 'valuation technique'
-        ],
-        'metric_ids': [],
-        'boost': 2.2,
-        'standards': {'indas': ['IndAS 113'], 'gaap': ['ASC 820'], 'ifrs': ['IFRS 13']}
-    },
-    'related_party': {
-        'category': 'Related Parties',
-        'keywords': [
-            'related party', 'related parties', 'related party transactions',
-            'related party disclosures', 'key management personnel', 'kmp'
-        ],
-        'metric_ids': [],
-        'boost': 2.3,
-        'standards': {'indas': ['IndAS 24'], 'gaap': ['ASC 850'], 'ifrs': ['IAS 24']}
-    },
-    'segment_reporting': {
-        'category': 'Segment Reporting',
-        'keywords': [
-            'segment reporting', 'operating segment', 'reportable segment',
-            'segment revenue', 'segment result', 'segment assets',
-            'americas segment', 'europe segment', 'greater china segment',
-            'japan segment', 'rest of asia pacific segment'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 108'], 'gaap': ['ASC 280'], 'ifrs': ['IFRS 8']}
-    },
-    'contingent_liabilities': {
-        'category': 'Contingencies',
-        'keywords': [
-            'contingent liability', 'contingent liabilities', 'contingent asset',
-            'provisions', 'onerous contract', 'warranty provision', 'legal claims'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 37'], 'gaap': ['ASC 450'], 'ifrs': ['IAS 37']}
-    },
-    # ===== DEFERRED TAX DETAILS =====
-    'deferred_tax_assets_rd': {
-        'category': 'Tax',
-        'keywords': [
-            'capitalized research and development', 'research and development tax', 'r&d tax credits'
-        ],
-        'metric_ids': [], 
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_assets_credits': {
-        'category': 'Tax',
-        'keywords': [
-            'tax credit carryforwards', 'tax credits', 'foreign tax credits', 'loss carryforwards',
-            'net operating loss carryforwards', 'nol'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_assets_accrued': {
-        'category': 'Tax',
-        'keywords': [
-            'accrued liabilities', 'other reserves', 'accrued expenses tax', 'reserves and surplus tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_assets_revenue': {
-        'category': 'Tax',
-        'keywords': [
-            'deferred revenue tax', 'contract liabilities tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_assets_lease': {
-        'category': 'Tax',
-        'keywords': [
-            'lease liabilities tax', 'operating lease liabilities tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_liabilities_depreciation': {
-        'category': 'Tax',
-        'keywords': [
-            'depreciation tax', 'accelerated depreciation', 'property plant and equipment tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_liabilities_rou': {
-        'category': 'Tax',
-        'keywords': [
-            'right-of-use assets tax', 'rou assets tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_min_tax_foreign': {
-        'category': 'Tax',
-        'keywords': [
-            'minimum tax on foreign earnings', 'foreign earnings tax'
-        ],
-        'metric_ids': [],
-        'boost': 1.5,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'deferred_tax_valuation_allowance': {
-        'category': 'Tax',
-        'keywords': [
-            'valuation allowance', 'less: valuation allowance'
-        ],
-        'metric_ids': [],
-        'boost': 1.8,
-        'standards': {'indas': ['IndAS 12'], 'gaap': ['ASC 740'], 'ifrs': ['IAS 12']}
-    },
-    'business_combination': {
-        'category': 'Business Combinations',
-        'keywords': [
-            'business combination', 'acquisition', 'purchase consideration',
-            'bargain purchase', 'acquiree', 'acquirer', 'acquisition date', 'merger'
-        ],
-        'metric_ids': [],
-        'boost': 2.0,
-        'standards': {'indas': ['IndAS 103'], 'gaap': ['ASC 805'], 'ifrs': ['IFRS 3']}
-    },
-}
-
-# Build flattened keyword -> term_key lookup for fast search
-KEYWORD_TO_TERM = {}
-for term_key, data in TERMINOLOGY_MAP.items():
-    for kw in data['keywords']:
-        kw_lower = kw.lower()
-        if kw_lower not in KEYWORD_TO_TERM:
-            KEYWORD_TO_TERM[kw_lower] = []
-        KEYWORD_TO_TERM[kw_lower].append(term_key)
-
-# Build keyword -> boost lookup
-KEYWORD_BOOST = {}
-for term_key, data in TERMINOLOGY_MAP.items():
-    boost = data.get('boost', 1.0)
-    for kw in data['keywords']:
-        kw_lower = kw.lower()
-        # Keep highest boost if keyword appears in multiple terms
-        if kw_lower not in KEYWORD_BOOST or KEYWORD_BOOST[kw_lower] < boost:
-            KEYWORD_BOOST[kw_lower] = boost
-
-
-def get_metric_ids_for_term(term_key: str) -> list:
-    """Get associated metric calculation IDs for a term."""
-    if term_key in TERMINOLOGY_MAP:
-        return TERMINOLOGY_MAP[term_key].get('metric_ids', [])
-    return []
-
-
-def get_term_for_keyword(keyword: str) -> list:
-    """Get term keys that match a keyword."""
-    return KEYWORD_TO_TERM.get(keyword.lower(), [])
-
-
-def get_boost_for_keyword(keyword: str) -> float:
-    """Get boost weight for a keyword."""
-    return KEYWORD_BOOST.get(keyword.lower(), 1.0)
-
-
-def get_all_keywords() -> list:
-    """Get all unique keywords."""
-    return list(KEYWORD_BOOST.keys())
-
-
-def get_standards_for_term(term_key: str) -> dict:
-    """Get related accounting standards for a term."""
-    if term_key in TERMINOLOGY_MAP:
-        return TERMINOLOGY_MAP[term_key].get('standards', {})
-    return {}
-
+import json
+import os
 import re
-import logging
-from typing import List, Set, Optional, Dict, Any
-
-logger = logging.getLogger(__name__)
+import sys
+from typing import Dict, List, Optional, Set, Any
 
 # =============================================================================
-# Financial Keywords Database
+# DATABASE LOADING
 # =============================================================================
 
-class FinancialKeywords:
-    """
-    Comprehensive database of financial keywords for matching.
-    Supports IndAS, IFRS, and US GAAP terminology.
-    Unified source matching `TERMINOLOGY_MAP`.
-    """
-    
-    # Core financial keywords are now DERIVED dynamically from TERMINOLOGY_MAP
-    # This prevents duplication and ensures strict consistency.
-    
-    # Important line items (used for highlighting)
-    IMPORTANT_ITEMS = {
-        # Balance Sheet Totals
-        'total assets', 'total equity and liabilities', 'total equity',
-        'total liabilities', 'net worth',
-        'total non-current assets', 'total current assets',
-        'total non-current liabilities', 'total current liabilities',
-        # Income Statement
-        'revenue from operations', 'total net sales', 'net sales',
-        'total income', 'total expenses', 'gross profit',
-        'operating profit', 'operating profit or loss', 'operating income',
-        'profit before tax', 'profit for the year', 'profit for the period',
-        'profit after tax', 'net profit', 'net income',
-        'ebitda', 'ebit',
-        'total comprehensive income',
-        # EPS
-        'earnings per share', 'basic eps', 'diluted eps',
-        # Cash Flow
-        'net cash from operating activities', 'net cash used in operating activities',
-        'net cash from investing activities', 'net cash used in investing activities',
-        'net cash from financing activities', 'net cash used in financing activities',
-        'net increase in cash', 'net decrease in cash',
-        'cash and cash equivalents at the end', 'free cash flow',
-        # Key Items
-        'cash and cash equivalents', 'trade receivables', 'inventories',
-        'property, plant and equipment', 'goodwill',
-        'trade payables', 'borrowings', 'lease liabilities',
-        'share capital', 'retained earnings',
-        # IFRS 18
-        'profit or loss before financing and income taxes',
-    }
-    
-    # Skip patterns - lines matching these should not be extracted
-    SKIP_PATTERNS = [
-        r'^page\s*[\d\-]+',
-        r'^\d{1,3}$',
-        r'^notes?\s*(?:to|on|forming)\s*(?:the\s*)?(?:financial|standalone|consolidated)',
-        r'^significant\s+accounting\s+policies',
-        r'^the\s+(?:accompanying\s+)?notes\s+(?:are|form)',
-        r'^see\s+(?:accompanying\s+)?notes',
-        r'^in\s+(?:terms\s+of\s+)?our\s+(?:report|attached)',
-        r'^for\s+and\s+on\s+behalf\s+of',
-        r'^(?:for\s+)?(?:chartered\s+)?accountants?',
-        r'^auditors?\s*(?:report)?',
-        r'^(?:managing\s+)?directors?',
-        r'^(?:chief\s+)?(?:executive|financial)\s+officer',
-        r'^company\s+secretary',
-        r'^(?:partner|proprietor)',
-        r'^membership\s+no',
-        r'^(?:firm\s+)?registration',
-        r'^din\s*[:\-]',
-        r'^(?:place|date)\s*[:\-]',
-        r'^sd/[-–]',
-        r'^\([a-z]\)$',
-        r'^annual\s+report',
-        r'^\d{4}[-–]\d{2,4}$',
-        r'^(?:amount\s+)?(?:₹|rs\.?|inr)\s*(?:in\s+)?(?:crore|lakh|million|thousand)',
-        r'^particulars?\s*$',
-        r'^note\s*(?:no\.?)?\s*$',
-        r'^as\s+(?:at|on)\s+',
-        r'^(?:for\s+the\s+)?(?:year|period)\s+ended',
-        r'^(?:standalone|consolidated)\s+(?:statement|balance)',
-        r'^this\s+is\s+the',
-        r'^referred\s+to\s+in',
-        r'^\s*[-–—]+\s*$',
-        r'^\s*[_=]+\s*$',
+def load_unified_database():
+    """Load the unified comprehensive terms database with all indexes."""
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), 'terms_database.json'),
+        os.path.join(os.path.dirname(__file__), 'python', 'terms_database.json'),
+        'terms_database.json',
+        'python/terms_database.json',
     ]
     
-    # Compiled patterns (for performance)
-    _all_keywords: Optional[Set[str]] = None
-    _compiled_skip_patterns: Optional[List] = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    metadata = data.get('metadata', {})
+                    print(f"[Terminology] Loaded unified database:", file=sys.stderr)
+                    print(f"[Terminology]   - {metadata.get('total_terms', 0)} terms", file=sys.stderr)
+                    print(f"[Terminology]   - {metadata.get('unique_keywords', 0)} unique keywords", file=sys.stderr)
+                    print(f"[Terminology]   - {len(metadata.get('categories', []))} categories", file=sys.stderr)
+                    return data
+            except Exception as e:
+                print(f"[Terminology] Error loading {path}: {e}", file=sys.stderr)
+                continue
     
-    @classmethod
-    def get_all_keywords(cls) -> Set[str]:
-        """Get flattened set of all keywords from TERMINOLOGY_MAP."""
-        if cls._all_keywords is None:
-            cls._all_keywords = set()
-            for data in TERMINOLOGY_MAP.values():
-                keywords = data.get('keywords', [])
-                cls._all_keywords.update(keywords)
-        return cls._all_keywords
+    print("[Terminology] Warning: Could not load terms_database.json", file=sys.stderr)
+    return {"terms": [], "indexes": {}}
+
+# Load the unified database
+DATABASE = load_unified_database()
+ALL_TERMS = DATABASE.get("terms", [])
+INDEXES = DATABASE.get("indexes", {})
+
+# =============================================================================
+# CORE DATA STRUCTURES
+# =============================================================================
+
+# Build comprehensive terminology map from unified database
+TERMINOLOGY_MAP: Dict[str, Dict] = {}
+KEYWORD_TO_TERM: Dict[str, List[Dict]] = {}
+
+# Define boost values based on term importance for matching priority
+BOOST_VALUES = {
+    # Income Statement - Critical items
+    'total_revenue': 3.0,
+    'net_sales': 2.8,
+    'cost_of_goods_sold': 2.7,
+    'gross_profit': 2.7,
+    'operating_profit': 2.8,
+    'ebitda': 2.9,
+    'profit_before_tax': 2.7,
+    'tax_expense': 2.5,
+    'profit_for_the_year': 3.0,
+    'net_income': 3.0,
+    'earnings_per_share': 2.8,
+    'total_income': 2.6,
+    'total_expenses': 2.6,
     
-    @classmethod
-    def get_compiled_skip_patterns(cls) -> List:
-        """Get compiled skip patterns for performance."""
-        if cls._compiled_skip_patterns is None:
-            cls._compiled_skip_patterns = [
-                re.compile(p, re.IGNORECASE) for p in cls.SKIP_PATTERNS
-            ]
-        return cls._compiled_skip_patterns
+    # Balance Sheet Assets - Critical items
+    'total_assets': 3.0,
+    'total_non_current_assets': 2.7,
+    'property_plant_equipment': 2.6,
+    'total_current_assets': 2.7,
+    'inventories': 2.5,
+    'trade_receivables': 2.5,
+    'cash_and_equivalents': 2.6,
+    'cash_and_bank_balances': 2.6,
     
-    @classmethod
-    def matches_keyword(cls, text: str) -> bool:
-        """Check if text matches any financial keyword."""
-        text_lower = text.lower()
-        
-        # Check direct keyword matches
-        for keyword in cls.get_all_keywords():
-            if keyword in text_lower:
-                return True
-        
-        # Check structural patterns
-        structural_patterns = [
-            r'\b(?:total|net|gross)\s+\w+',
-            r'\b(?:current|non-current)\s+\w+',
-            r'\b\w+\s+(?:expense|expenses|income|assets?|liabilities?)\b',
-            r'\b(?:provision|reserve)s?\s+for\b',
-            r'\b(?:less|add|adjustment)s?:?\s*\w+',
-            r'\b\w+\s+(?:receivable|payable)s?\b',
-            r'\b(?:opening|closing)\s+\w+',
-            r'\b(?:profit|loss)\s+(?:before|after|from)\b',
-            r'\bcash\s+(?:flow|from|used)\b',
-            r'\b(?:fair\s+value|fvtpl|fvoci)\b',
-        ]
-        
-        for pattern in structural_patterns:
-            if re.search(pattern, text_lower):
-                return True
-        
-        return False
+    # Balance Sheet Liabilities - Critical items
+    'total_equity_and_liabilities': 3.0,
+    'total_non_current_liabilities': 2.6,
+    'total_current_liabilities': 2.6,
+    'trade_payables': 2.5,
+    'borrowings': 2.6,
+    'long_term_borrowings': 2.6,
+    'short_term_borrowings': 2.5,
+    'total_liabilities': 2.8,
     
-    @classmethod
-    def should_skip_line(cls, text: str) -> bool:
-        """Check if line should be skipped based on skip patterns."""
-        text_stripped = text.strip().lower()
-        
-        # Quick checks first
-        if len(text_stripped) < 5:
-            return True
-        
-        # Pure numbers
-        if re.match(r'^[\d,.\s\(\)\-]+$', text_stripped):
-            return True
-        
-        # Check compiled patterns
-        for pattern in cls.get_compiled_skip_patterns():
-            if pattern.search(text_stripped):
-                return True
-        
-        return False
+    # Balance Sheet Equity - Critical items
+    'total_equity': 2.8,
+    'share_capital': 2.6,
+    'reserves_and_surplus': 2.6,
+    'retained_earnings': 2.5,
     
-    @classmethod
-    def is_important_item(cls, label: str) -> bool:
-        """Check if label represents an important line item."""
-        label_lower = label.lower()
-        
-        for important in cls.IMPORTANT_ITEMS:
-            if important in label_lower:
-                return True
-        
-        return False
+    # Cash Flow - Critical items
+    'net_cash_from_operating_activities': 2.8,
+    'net_cash_from_investing_activities': 2.7,
+    'net_cash_from_financing_activities': 2.7,
+    'cash_and_cash_equivalents_at_end': 2.7,
     
-    @classmethod
-    def get_category(cls, text: str) -> Optional[str]:
-        """Determine the category of a financial term."""
-        text_lower = text.lower()
-        
-        for data in TERMINOLOGY_MAP.values():
-            for keyword in data.get('keywords', []):
-                if keyword in text_lower:
-                    return data.get('category')
-        
-        return None
+    # Financial Ratios - Important
+    'earnings_per_share_basic': 2.7,
+    'earnings_per_share_diluted': 2.7,
+    'book_value_per_share': 2.5,
+    'dividend_per_share': 2.5,
+}
+
+# Additional keyword-specific boosts
+KEYWORD_BOOST = {
+    'total revenue': 1.8,
+    'revenue from operations': 1.7,
+    'profit for the year': 1.8,
+    'profit before tax': 1.7,
+    'total assets': 1.8,
+    'total equity and liabilities': 1.8,
+    'ebitda': 1.9,
+    'earnings per share': 1.8,
+    'net cash from operating activities': 1.7,
+    'net income': 1.8,
+    'gross profit': 1.7,
+    'operating profit': 1.7,
+}
+
+# =============================================================================
+# BUILD MAPS FROM UNIFIED DATABASE
+# =============================================================================
+
+def build_terminology_maps():
+    """Build TERMINOLOGY_MAP and KEYWORD_TO_TERM from unified database."""
+    global TERMINOLOGY_MAP, KEYWORD_TO_TERM
     
-    @classmethod
-    def add_custom_keywords(cls, keywords: List[str]) -> int:
-        """Add custom keywords to the database."""
-        count = 0
-        all_kw = cls.get_all_keywords()
+    # Build from terms list
+    for term in ALL_TERMS:
+        term_key = term.get('key', '')
+        if not term_key:
+            continue
         
-        for kw in keywords:
-            if kw and isinstance(kw, str):
+        # Get unified keywords
+        keywords = term.get('keywords_unified', [])
+        if not keywords:
+            # Fallback: combine individual standard keywords
+            keywords = (
+                term.get('keywords_indas', []) +
+                term.get('keywords_gaap', []) +
+                term.get('keywords_ifrs', [])
+            )
+            # Deduplicate
+            seen = set()
+            unique_keywords = []
+            for kw in keywords:
                 kw_lower = kw.lower().strip()
-                if kw_lower and kw_lower not in all_kw:
-                    all_kw.add(kw_lower)
-                    count += 1
+                if kw_lower and kw_lower not in seen:
+                    seen.add(kw_lower)
+                    unique_keywords.append(kw_lower)
+            keywords = unique_keywords
         
-        return count
+        # Get boost value
+        boost = BOOST_VALUES.get(term_key, 1.5)
+        
+        # Build metric IDs based on term type
+        metric_ids = []
+        if 'revenue' in term_key or 'sales' in term_key:
+            metric_ids = ['calc_revenue_growth', 'calc_ps_ratio']
+        elif 'profit' in term_key and 'gross' in term_key:
+            metric_ids = ['calc_gross_margin', 'calc_gross_profit']
+        elif 'operating' in term_key and 'profit' in term_key:
+            metric_ids = ['calc_operating_margin', 'calc_ebit_margin']
+        elif 'ebitda' in term_key:
+            metric_ids = ['calc_ebitda', 'calc_ebitda_margin', 'calc_ev_to_ebitda']
+        elif 'total_assets' in term_key:
+            metric_ids = ['calc_roa', 'calc_asset_turnover']
+        elif 'equity' in term_key and 'total' in term_key:
+            metric_ids = ['calc_roe', 'calc_book_value']
+        elif 'receivable' in term_key:
+            metric_ids = ['calc_dso', 'calc_receivables_turnover']
+        elif 'inventory' in term_key or 'inventories' in term_key:
+            metric_ids = ['calc_dio', 'calc_inventory_turnover']
+        elif 'payable' in term_key:
+            metric_ids = ['calc_dpo', 'calc_payables_turnover']
+        elif 'cash' in term_key and 'operating' in term_key:
+            metric_ids = ['calc_operating_cash_flow', 'calc_fcf']
+        elif 'eps' in term_key or 'earnings_per_share' in term_key:
+            metric_ids = ['calc_eps', 'calc_pe_ratio']
+        
+        # Add to terminology map
+        TERMINOLOGY_MAP[term_key] = {
+            'id': term.get('id', term_key),
+            'key': term_key,
+            'label': term.get('label', term_key),
+            'category': term.get('category', 'Financial Terms'),
+            'description': term.get('description', ''),
+            'keywords': keywords,
+            'keywords_indas': term.get('keywords_indas', []),
+            'keywords_gaap': term.get('keywords_gaap', []),
+            'keywords_ifrs': term.get('keywords_ifrs', []),
+            'keywords_unified': keywords,
+            'related_standards': term.get('related_standards', {}),
+            'aliases': term.get('aliases', []),
+            'calculation': term.get('calculation', ''),
+            'sign_convention': term.get('sign_convention', 'positive'),
+            'data_type': term.get('data_type', 'currency'),
+            'priority': term.get('priority', 1),
+            'is_computed': term.get('is_computed', False),
+            'components': term.get('components', []),
+            'metric_ids': metric_ids,
+            'boost': boost
+        }
+        
+        # Build reverse keyword map (cross-sectional)
+        for keyword in keywords:
+            keyword_lower = keyword.lower().strip()
+            if keyword_lower:
+                if keyword_lower not in KEYWORD_TO_TERM:
+                    KEYWORD_TO_TERM[keyword_lower] = []
+                
+                # Check if already added
+                if not any(t['term_key'] == term_key for t in KEYWORD_TO_TERM[keyword_lower]):
+                    KEYWORD_TO_TERM[keyword_lower].append({
+                        'term_key': term_key,
+                        'term_id': term.get('id', ''),
+                        'label': term.get('label', ''),
+                        'category': term.get('category', ''),
+                        'boost': boost,
+                        'priority': term.get('priority', 1)
+                    })
     
-    @classmethod
-    def update_from_mappings(cls, mappings: List[Dict[str, Any]]) -> int:
-        """
-        Update keywords from term mappings (e.g., from frontend).
-        
-        Args:
-            mappings: List of term mapping dicts with keywords_indas, keywords_gaap, etc.
-            
-        Returns:
-            Number of keywords added
-        """
-        count = 0
-        
-        for item in mappings:
-            # Add keywords from all standards
-            for field in ['keywords_indas', 'keywords_gaap', 'keywords_ifrs']:
-                keyword_list = item.get(field, [])
-                if isinstance(keyword_list, list):
-                    count += cls.add_custom_keywords(keyword_list)
-            
-            # Also add the label itself
-            label = item.get('label')
-            if label:
-                count += cls.add_custom_keywords([label])
-        
-        logger.info(f"Updated keywords: added {count} new terms")
-        return count
+    # Also populate from keyword index if available
+    keyword_index = INDEXES.get('by_keyword', {})
+    for keyword, term_list in keyword_index.items():
+        if keyword not in KEYWORD_TO_TERM:
+            KEYWORD_TO_TERM[keyword] = term_list
+
+# Build the maps
+build_terminology_maps()
+
+# =============================================================================
+# CROSS-SECTIONAL MATCHING FUNCTIONS
+# =============================================================================
+
+def find_all_matching_terms(text: str, min_keyword_length: int = 3) -> List[Dict]:
+    """
+    Find ALL matching terms in text using cross-sectional keyword matching.
+    Returns a list of all matches with their scores.
     
-    @classmethod
-    def get_keyword_count(cls) -> int:
-        """Get total number of keywords in database."""
-        return len(cls.get_all_keywords())
+    This function searches through ALL unified keywords from ALL accounting standards.
+    """
+    matches = []
+    text_lower = text.lower().strip()
     
-    @classmethod
-    def get_categories(cls) -> List[str]:
-        """Get list of all keyword categories."""
-        return list(set(data.get('category') for data in TERMINOLOGY_MAP.values() if data.get('category')))
+    if not text_lower:
+        return matches
+    
+    # Method 1: Direct keyword matching with word boundaries
+    for keyword, term_list in KEYWORD_TO_TERM.items():
+        if len(keyword) < min_keyword_length:
+            continue
+        
+        # Use word-boundary matching
+        escaped_kw = re.escape(keyword)
+        pattern = r'(?:^|[\s\-\(\[\/\,;:.])' + escaped_kw + r'(?:[\s\-\)\]\/\,;:.]|$)'
+        
+        if re.search(pattern, text_lower):
+            for term_info in term_list:
+                term_key = term_info.get('term_key', '')
+                if not term_key:
+                    continue
+                
+                term_data = TERMINOLOGY_MAP.get(term_key, {})
+                if not term_data:
+                    continue
+                
+                boost = term_data.get('boost', 1.5)
+                length_score = len(keyword)
+                
+                # Bonus for exact match
+                exact_bonus = 15 if text_lower == keyword else 0
+                
+                # Bonus for starting match
+                start_bonus = 8 if text_lower.startswith(keyword) else 0
+                
+                # Additional boost for specific keywords
+                keyword_boost = KEYWORD_BOOST.get(keyword, 0)
+                
+                # Priority bonus
+                priority_bonus = term_data.get('priority', 1) * 0.5
+                
+                score = (length_score * boost) + exact_bonus + start_bonus + keyword_boost + priority_bonus
+                
+                matches.append({
+                    'term_key': term_key,
+                    'term_id': term_data.get('id', term_key),
+                    'term_label': term_data.get('label', term_key),
+                    'matched_keyword': keyword,
+                    'category': term_data.get('category', 'Unknown'),
+                    'score': score,
+                    'boost': boost,
+                    'metric_ids': term_data.get('metric_ids', []),
+                    'data_type': term_data.get('data_type', 'currency'),
+                    'sign_convention': term_data.get('sign_convention', 'positive')
+                })
+    
+    # Method 2: Tokenized phrase matching (for multi-word terms)
+    text_words = text_lower.split()
+    for window_size in [6, 5, 4, 3, 2]:
+        if len(text_words) >= window_size:
+            for i in range(len(text_words) - window_size + 1):
+                phrase = ' '.join(text_words[i:i + window_size])
+                
+                if phrase in KEYWORD_TO_TERM:
+                    for term_info in KEYWORD_TO_TERM[phrase]:
+                        term_key = term_info.get('term_key', '')
+                        term_data = TERMINOLOGY_MAP.get(term_key, {})
+                        
+                        if term_data:
+                            boost = term_data.get('boost', 1.5)
+                            score = len(phrase) * boost * 2.0  # Strong bonus for tokenized match
+                            
+                            matches.append({
+                                'term_key': term_key,
+                                'term_id': term_data.get('id', term_key),
+                                'term_label': term_data.get('label', term_key),
+                                'matched_keyword': phrase,
+                                'category': term_data.get('category', 'Unknown'),
+                                'score': score,
+                                'boost': boost,
+                                'metric_ids': term_data.get('metric_ids', []),
+                                'data_type': term_data.get('data_type', 'currency'),
+                                'sign_convention': term_data.get('sign_convention', 'positive')
+                            })
+    
+    # Remove duplicates (same term_key)
+    seen_terms = set()
+    unique_matches = []
+    for match in matches:
+        if match['term_key'] not in seen_terms:
+            seen_terms.add(match['term_key'])
+            unique_matches.append(match)
+    
+    # Sort by score descending
+    unique_matches.sort(key=lambda x: x['score'], reverse=True)
+    
+    return unique_matches
+
+
+def find_best_matching_term(text: str, min_keyword_length: int = 3) -> Optional[Dict]:
+    """
+    Find the single best matching term for the given text.
+    Returns the highest-scoring match or None.
+    """
+    all_matches = find_all_matching_terms(text, min_keyword_length)
+    return all_matches[0] if all_matches else None
+
+
+def get_terms_by_category(category: str) -> List[Dict]:
+    """Get all terms belonging to a specific category."""
+    category_index = INDEXES.get('by_category', {})
+    term_refs = category_index.get(category, [])
+    
+    terms = []
+    for ref in term_refs:
+        term_key = ref.get('term_key', '')
+        if term_key in TERMINOLOGY_MAP:
+            terms.append(TERMINOLOGY_MAP[term_key])
+    
+    return terms
+
+
+def get_terms_by_standard(standard: str, standard_code: str) -> List[Dict]:
+    """
+    Get all terms related to a specific accounting standard.
+    
+    Args:
+        standard: 'indas', 'gaap', or 'ifrs'
+        standard_code: e.g., 'IndAS 115', 'ASC 606', 'IFRS 15'
+    """
+    standards_index = INDEXES.get('by_standard', {})
+    standard_index = standards_index.get(standard, {})
+    term_keys = standard_index.get(standard_code, [])
+    
+    terms = []
+    for term_key in term_keys:
+        if term_key in TERMINOLOGY_MAP:
+            terms.append(TERMINOLOGY_MAP[term_key])
+    
+    return terms
+
+
+def search_terms_by_keyword(keyword: str) -> List[Dict]:
+    """Search for terms that match a given keyword (partial matching supported)."""
+    keyword_lower = keyword.lower().strip()
+    matches = []
+    
+    for term_key, term_data in TERMINOLOGY_MAP.items():
+        # Check in unified keywords
+        for kw in term_data.get('keywords_unified', []):
+            if keyword_lower in kw or kw in keyword_lower:
+                matches.append(term_data)
+                break
+        
+        # Check in label
+        if keyword_lower in term_data.get('label', '').lower():
+            if term_data not in matches:
+                matches.append(term_data)
+    
+    return matches
+
+
+def get_related_terms(term_key: str) -> List[Dict]:
+    """Get terms related to the given term (same category or shared standards)."""
+    if term_key not in TERMINOLOGY_MAP:
+        return []
+    
+    term_data = TERMINOLOGY_MAP[term_key]
+    category = term_data.get('category', '')
+    standards = term_data.get('related_standards', {})
+    
+    related = []
+    for other_key, other_data in TERMINOLOGY_MAP.items():
+        if other_key == term_key:
+            continue
+        
+        # Same category
+        if other_data.get('category') == category:
+            related.append(other_data)
+            continue
+        
+        # Shared standards
+        other_standards = other_data.get('related_standards', {})
+        for std_type in ['indas', 'gaap', 'ifrs']:
+            if std_type in standards and std_type in other_standards:
+                if any(s in other_standards[std_type] for s in standards[std_type]):
+                    if other_data not in related:
+                        related.append(other_data)
+    
+    return related
+
+
+# =============================================================================
+# STATISTICS AND INFO
+# =============================================================================
+
+def get_database_stats() -> Dict[str, Any]:
+    """Get comprehensive statistics about the unified database."""
+    metadata = DATABASE.get('metadata', {})
+    
+    stats = {
+        'total_terms': len(ALL_TERMS),
+        'total_keywords': metadata.get('total_keywords', 0),
+        'unique_keywords': metadata.get('unique_keywords', 0),
+        'categories': metadata.get('categories', []),
+        'terms_in_terminology_map': len(TERMINOLOGY_MAP),
+        'keywords_in_index': len(KEYWORD_TO_TERM),
+        'accounting_standards': metadata.get('accounting_standards', {})
+    }
+    
+    return stats
+
+
+def print_database_summary():
+    """Print a summary of the unified database."""
+    stats = get_database_stats()
+    
+    print("\n" + "="*60, file=sys.stderr)
+    print("UNIFIED FINANCIAL TERMINOLOGY DATABASE", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    print(f"Total Terms:              {stats['total_terms']}", file=sys.stderr)
+    print(f"Total Keywords:           {stats['total_keywords']}", file=sys.stderr)
+    print(f"Unique Keywords:          {stats['unique_keywords']}", file=sys.stderr)
+    print(f"Categories:               {len(stats['categories'])}", file=sys.stderr)
+    print(f"Terms in Map:             {stats['terms_in_terminology_map']}", file=sys.stderr)
+    print(f"Keywords Indexed:         {stats['keywords_in_index']}", file=sys.stderr)
+    print("\nCategories:", file=sys.stderr)
+    for cat in sorted(stats['categories']):
+        print(f"  - {cat}", file=sys.stderr)
+    print("="*60 + "\n", file=sys.stderr)
+
+# Print summary on load
+print_database_summary()
+
+# =============================================================================
+# BACKWARDS COMPATIBILITY
+# =============================================================================
+
+__all__ = [
+    'TERMINOLOGY_MAP',
+    'KEYWORD_TO_TERM',
+    'KEYWORD_BOOST',
+    'ALL_TERMS',
+    'DATABASE',
+    'INDEXES',
+    'find_all_matching_terms',
+    'find_best_matching_term',
+    'get_terms_by_category',
+    'get_terms_by_standard',
+    'search_terms_by_keyword',
+    'get_related_terms',
+    'get_database_stats',
+    'print_database_summary'
+]

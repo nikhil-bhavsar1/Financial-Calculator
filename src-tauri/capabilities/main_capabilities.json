@@ -1,0 +1,65 @@
+{
+    "$schema": "../gen/schemas/desktop-schema.json",
+    "identifier": "main_capabilities",
+    "description": "Main window capabilities",
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "core:default",
+        "shell:allow-open",
+        "shell:allow-spawn",
+        "shell:allow-stdin-write",
+        "shell:allow-kill",
+        {
+            "identifier": "shell:allow-execute",
+            "allow": [
+                {
+                    "name": "python3",
+                    "cmd": "python3",
+                    "args": true,
+                    "sidecar": false
+                },
+                {
+                    "name": "python",
+                    "cmd": "python",
+                    "args": true,
+                    "sidecar": false
+                }
+            ]
+        },
+        "fs:default",
+        "fs:allow-read",
+        "fs:allow-write",
+        "fs:allow-mkdir",
+        "fs:allow-remove",
+        "fs:allow-rename",
+        "fs:allow-copy-file",
+        "fs:allow-exists",
+        "fs:allow-stat",
+        {
+            "identifier": "fs:scope",
+            "allow": [
+                {
+                    "path": "$APPLOCALDATA/**"
+                },
+                {
+                    "path": "$TEMP/**"
+                },
+                {
+                    "path": "$DOWNLOAD/**"
+                },
+                {
+                    "path": "$DOCUMENT/**"
+                },
+                {
+                    "path": "$HOME/**"
+                },
+                {
+                    "path": "**"
+                }
+            ]
+        },
+        "dialog:allow-open"
+    ]
+}

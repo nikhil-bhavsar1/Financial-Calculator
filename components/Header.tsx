@@ -5,9 +5,10 @@ interface HeaderProps {
   onUploadClick?: () => void;
   onOpenSettings: () => void;
   onOpenKnowledgeBase: () => void;
+  title?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onUploadClick, onOpenSettings, onOpenKnowledgeBase }) => {
+export const Header: React.FC<HeaderProps> = ({ onUploadClick, onOpenSettings, onOpenKnowledgeBase, title }) => {
   return (
     <header className="glass-nav px-6 py-4 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center gap-6">
@@ -29,12 +30,7 @@ export const Header: React.FC<HeaderProps> = ({ onUploadClick, onOpenSettings, o
 
         {/* Document Info */}
         <div>
-          <h1 className="text-sm font-semibold text-primary">Q3 Financial Report Analysis</h1>
-          <div className="flex items-center gap-2 text-xs text-tertiary mt-0.5">
-            <span>Processing ID: #8823-XJ9</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-success)] animate-pulse" />
-            <span className="text-success font-medium">Live Computation</span>
-          </div>
+          <h1 className="text-sm font-semibold text-primary">{title || "Financial Calculator"}</h1>
         </div>
       </div>
 

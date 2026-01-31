@@ -682,6 +682,7 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
                                                                                 e.stopPropagation();
                                                                                 onSourceClick?.(item);
                                                                             }}
+                                                                            title={item.rawLine ? `Source: ${item.rawLine}` : `Page ${item.sourcePage}`}
                                                                         >
                                                                             <FileText className="w-3 h-3" />
                                                                             {item.sourcePage}
@@ -794,6 +795,7 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
                                                                                         e.stopPropagation();
                                                                                         item.sourcePage ? onSourceClick?.(item) : handleStartEditPage(item);
                                                                                     }}
+                                                                                    title={item.rawLine ? `Source: ${item.rawLine}` : (item.sourcePage ? `Page ${item.sourcePage}` : 'Click to add page')}
                                                                                 >
                                                                                     <FileText className="w-3 h-3" />
                                                                                     {item.sourcePage || 'Page'}

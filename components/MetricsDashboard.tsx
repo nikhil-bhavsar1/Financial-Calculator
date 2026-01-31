@@ -239,7 +239,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 pr-2">
                   {metricDetails.breakdown.map((step, index) => (
                     <div
                       key={index}
@@ -286,7 +286,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
                   <p className="text-xs text-tertiary">Understanding this metric</p>
                 </div>
               </div>
-              <div className="space-y-3 text-sm text-secondary leading-relaxed">
+              <div className="space-y-3 text-sm text-secondary leading-relaxed pr-2">
                 {getInterpretationGuide(selectedMetric.label, selectedMetric.variation)}
               </div>
             </div>

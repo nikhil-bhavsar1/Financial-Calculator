@@ -4,7 +4,7 @@
 # FINANCIAL CALCULATOR - FULL STACK LAUNCHER
 # =============================================================================
 # This script sets up the environment (Python venv, Node dependencies)
-# and launches the backend API and frontend Desktop App.
+# and launches the desktop application with the Rust-Python bridge.
 
 set -u # Error on undefined variables
 
@@ -34,7 +34,6 @@ import os
 from pathlib import Path
 
 # Identify config directory (Linux/standard XDG)
-# Note: Adjust if running on Mac or Windows if needed, but this script is bash/Linux focused
 config_dir = Path.home() / '.local/share/com.financial.calculator'
 settings_file = config_dir / 'settings.json'
 
@@ -56,22 +55,15 @@ if settings_file.exists():
         print(f'      ⚠️  Failed to wipe settings: {e}')
 "
 
-    # Kill Python API
-    if [ ! -z "${PYTHON_PID:-}" ]; then
-        kill $PYTHON_PID 2>/dev/null
-        echo -e "   ${GREEN}✓ Python API stopped${NC}"
-    fi
-    
     # Kill any binary instance
     pkill -x "financial-calculator" 2>/dev/null
     
-    # Kill Vite/Tauri processes
-    # Find process listening on 1420
+    # Kill Vite/Tauri/Cargo processes
     VITE_PID=$(lsof -t -i:1420 2>/dev/null)
     if [ ! -z "$VITE_PID" ]; then
         kill -9 $VITE_PID 2>/dev/null
-        echo -e "   ${GREEN}✓ Frontend services stopped${NC}"
     fi
+    pkill -f "cargo run" 2>/dev/null
 
     echo -e "   ${GREEN}✓ Cleanup complete. Have a nice day!${NC}"
     exit 0
@@ -80,10 +72,24 @@ if settings_file.exists():
 trap cleanup SIGINT SIGTERM
 
 # =============================================================================
-# 1. PYTHON ENVIRONMENT SETUP
+# 1. RUST & SYSTEM CHECKS
 # =============================================================================
 
-echo -e "${BLUE}1. Setting up Python Environment...${NC}"
+echo -e "${BLUE}1. System Checks...${NC}"
+
+if ! command -v cargo &> /dev/null; then
+    echo -e "   ${RED}❌ Rust/Cargo is missing. Please install Rust (https://rustup.rs).${NC}"
+    exit 1
+else
+    echo -e "   ${GREEN}✅ Rust/Cargo found$(cargo --version | awk '{print " ("$2")"}').${NC}"
+fi
+
+# =============================================================================
+# 2. PYTHON ENVIRONMENT SETUP
+# =============================================================================
+
+echo ""
+echo -e "${BLUE}2. Setting up Python Environment...${NC}"
 
 # Check for Python 3
 if ! command -v python3 &> /dev/null; then
@@ -106,31 +112,80 @@ source .venv/bin/activate
 echo -e "   ${GREEN}✅ Virtual environment activated ($(which python))${NC}"
 
 # Install Python Dependencies
-echo -e "   ${YELLOW}📦 Checking/Installing Python libraries...${NC}"
+echo -e "   ${YELLOW}📦 Installing Python libraries...${NC}"
 pip install --upgrade pip --quiet
-# Install requirements if requirements.txt exists, otherwise install manually
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt --quiet
-else
-    # Core libs
-    REQUIRED_LIBS="flask flask-cors pytesseract pandas openpyxl pillow opencv-python-headless pymupdf"
-    pip install $REQUIRED_LIBS --quiet
-    
-    # Check for RAG engine dependencies
-    if [ -f "rag_engine.py" ]; then
-        # Assuming rag_engine might need numpy or others
-        pip install numpy --quiet
-    fi
+
+# -----------------------------------------------------------------------------
+# CORE DEPENDENCIES (Required for basic functionality)
+# -----------------------------------------------------------------------------
+echo -e "   ${BLUE}   → Installing core dependencies...${NC}"
+CORE_LIBS="pymupdf pdfplumber pandas flask flask-cors pillow"
+pip install $CORE_LIBS --quiet
+echo -e "   ${GREEN}   ✓ Core dependencies installed${NC}"
+
+# -----------------------------------------------------------------------------
+# OCR DEPENDENCIES (Required for scanned PDFs)
+# -----------------------------------------------------------------------------
+echo -e "   ${BLUE}   → Installing OCR dependencies...${NC}"
+OCR_LIBS="pytesseract opencv-python-headless"
+pip install $OCR_LIBS --quiet
+echo -e "   ${GREEN}   ✓ OCR dependencies installed (pytesseract, opencv)${NC}"
+
+# Check if tesseract is installed on system
+if ! command -v tesseract &> /dev/null; then
+    echo -e "   ${YELLOW}   ⚠️  Tesseract OCR binary not found on system.${NC}"
+    echo -e "   ${YELLOW}      Install with: sudo apt install tesseract-ocr (Debian/Ubuntu)${NC}"
+    echo -e "   ${YELLOW}      or: sudo dnf install tesseract (Fedora)${NC}"
 fi
+
+# -----------------------------------------------------------------------------
+# PARSER DEPENDENCIES (Additional parsing support)
+# -----------------------------------------------------------------------------
+echo -e "   ${BLUE}   → Installing parser dependencies...${NC}"
+PARSER_LIBS="openpyxl xlrd lxml beautifulsoup4"
+pip install $PARSER_LIBS --quiet
+echo -e "   ${GREEN}   ✓ Parser dependencies installed${NC}"
+
+# Check for requirements.txt
+if [ -f "requirements.txt" ]; then
+    echo -e "   ${BLUE}   → Installing from requirements.txt...${NC}"
+    pip install -r requirements.txt --quiet
+fi
+
 echo -e "   ${GREEN}✅ Python dependencies installed${NC}"
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: HEAVY ML DEPENDENCIES (EasyOCR, Torch)
+# -----------------------------------------------------------------------------
+echo ""
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW} OPTIONAL: Install ML-powered OCR (EasyOCR + PyTorch)?${NC}"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "   EasyOCR provides better accuracy for complex scanned documents"
+echo "   but requires PyTorch (~2GB download, may take several minutes)."
+echo ""
+read -p "   Install EasyOCR + PyTorch? (y/N): " INSTALL_EASYOCR
+INSTALL_EASYOCR=${INSTALL_EASYOCR:-N}
+
+if [[ "$INSTALL_EASYOCR" =~ ^[Yy]$ ]]; then
+    echo -e "   ${BLUE}   → Installing EasyOCR and PyTorch (this may take a while)...${NC}"
+    pip install torch torchvision --quiet
+    pip install easyocr --quiet
+    echo -e "   ${GREEN}   ✓ EasyOCR installed successfully${NC}"
+else
+    echo -e "   ${BLUE}   → Skipping EasyOCR installation${NC}"
+fi
+
+echo ""
 
 
 # =============================================================================
-# 2. NODE.JS ENVIRONMENT SETUP
+# 3. NODE.JS ENVIRONMENT SETUP
 # =============================================================================
 
 echo ""
-echo -e "${BLUE}2. Setting up Node.js Environment...${NC}"
+echo -e "${BLUE}3. Setting up Node.js Environment...${NC}"
 
 if ! command -v npm &> /dev/null; then
     echo -e "   ${RED}❌ npm is missing. Please install Node.js.${NC}"
@@ -149,87 +204,28 @@ else
 fi
 
 # =============================================================================
-# 3. EXTERNAL SERVICES CHECK (OCR & OLLAMA)
-# =============================================================================
-
-echo ""
-echo -e "${BLUE}3. Checking External Services...${NC}"
-
-# OCR
-if command -v tesseract &> /dev/null; then
-    echo -e "   ${GREEN}✅ Tesseract OCR found${NC}"
-else
-    echo -e "   ${YELLOW}⚠️  Tesseract OCR missing (Scanned PDFs will be unreadable)${NC}"
-    echo "      Install via: sudo apt install tesseract-ocr (Linux) or brew install tesseract (Mac)"
-fi
-
-# EasyOCR check (Python)
-if python -c "import easyocr" &> /dev/null; then
-    echo -e "   ${GREEN}✅ EasyOCR found (Python)${NC}"
-else
-    echo -e "   ${YELLOW}ℹ️  EasyOCR not installed (Optional - Better accuracy)${NC}"
-fi
-
-# Ollama
-if command -v ollama &> /dev/null; then
-    echo -e "   ${GREEN}✅ Ollama found${NC}"
-    # Check if running
-    if curl -s http://localhost:11434/api/tags > /dev/null; then
-        echo -e "   ${GREEN}✅ Ollama service is running${NC}"
-    else
-        echo -e "   ${YELLOW}⚠️  Ollama is installed but NOT running.${NC}"
-        echo "      Please run 'ollama serve' in a separate terminal for AI features."
-    fi
-else
-    echo -e "   ${YELLOW}⚠️  Ollama not found (AI Chat/RAG features will be disabled)${NC}"
-    echo "      Install from https://ollama.com"
-fi
-
-# =============================================================================
 # 4. STARTING SERVICES
 # =============================================================================
 
 echo ""
 echo -e "${BLUE}4. Launching Application...${NC}"
 
-# Kill existing ports
-fuser -k 8765/tcp 2>/dev/null
-fuser -k 1420/tcp 2>/dev/null
-
-# Start Python API
-echo -e "   🐍 Starting Python Backend (Port 8765)..."
-python python/api.py --server 8765 > python-api.log 2>&1 &
-PYTHON_PID=$!
-sleep 2
-
-# Check if Python API started
-if ps -p $PYTHON_PID > /dev/null; then
-    echo -e "   ${GREEN}✅ Python API running (PID: $PYTHON_PID)${NC}"
-else
-    echo -e "   ${RED}❌ Python API failed to start. Log output:${NC}"
-    cat python-api.log
-    exit 1
-fi
-
-# Configure Wayland for Linux
+# Configure Wayland for Linux if needed
 if [ "${XDG_SESSION_TYPE:-}" == "wayland" ]; then
     export GDK_BACKEND=wayland
     export WEBKIT_DISABLE_COMPOSITING_MODE=1
 fi
 
-echo ""
 echo -e "${GREEN}==========================================${NC}"
 echo -e "${GREEN}   🚀 Financial Calculator Started        ${NC}"
 echo -e "${GREEN}==========================================${NC}"
-echo "   Backend: http://localhost:8765"
-echo "   Frontend: http://localhost:1420 (starts with app)"
+echo "   Backend: Rust Bridge + Python Parser (Direct Spawn)"
+echo "   Frontend: http://localhost:1420"
 echo ""
-echo -e "   ${YELLOW}ℹ️  Note: API Keys are saved for this session only."
-echo -e "       They will be securely wiped from disk when you stop this script (Ctrl+C).${NC}"
+echo -e "   ${YELLOW}ℹ️  first-time build may take a few minutes.${NC}"
 echo ""
 
 # Start Tauri
-# Note: tauri.conf.json beforeDevCommand now runs 'npm run dev'
 npm run tauri dev
 
 # Wait for cleanup

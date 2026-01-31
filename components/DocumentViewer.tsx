@@ -24,16 +24,16 @@ interface DocumentViewerProps {
     showToolbar?: boolean;
     fileUrl?: string;
     fileType?: 'pdf' | 'image' | 'text';
+    highlightLocation?: { page: number, text: string } | null;
 }
 
 import { Document, Page as PdfPage, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Set worker source
-// Set worker source
-// Use Vite's explicit URL import for the worker to ensure it bundles correctly for Tauri/Offline use
-// @ts-ignore
+// Set worker source - use local worker from pdfjs-dist
+// Version is now matched to react-pdf's expected version (5.4.296)
+// @ts-ignore - Vite specific import syntax
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -951,10 +951,9 @@ const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
     );
 };
 
-// ... (DocumentViewer component start)
+
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
-    // ... props
     content,
     className = '',
     initialPage = 1,
@@ -964,7 +963,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     editable = true,
     showToolbar = true,
     fileUrl,
-    fileType = 'text'
+    fileType = 'text',
+    highlightLocation
 }) => {
     // ... state
     const [pages, setPages] = useState<Page[]>([]);
@@ -979,14 +979,57 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     const [showThumbnails, setShowThumbnails] = useState(false);
     const [showOutline, setShowOutline] = useState(false);
     const [bookmarks, setBookmarks] = useState<number[]>([]);
-    const [viewMode, setViewMode] = useState<ViewMode>('preview');
+    const [viewMode, setViewMode] = useState<ViewMode>('preview'); // Default to preview
     const [numPdfPages, setNumPdfPages] = useState<number | null>(null);
     const [isPdfLoaded, setIsPdfLoaded] = useState(false);
+    const [pdfError, setPdfError] = useState<string | null>(null);
+
+    // Handle highlight location request
+    useEffect(() => {
+        if (highlightLocation && highlightLocation.text) {
+            // Force switch to preview mode as we rely on Markdown search for now
+            // (PDF text layer search isn't fully implemented yet)
+            setViewMode('preview');
+
+            // Set search query
+            setSearchQuery(highlightLocation.text);
+            setShowSearch(true);
+
+            // Navigate to page
+            setCurrentPage(highlightLocation.page);
+
+            // Small delay to allow search results to populate then jump to first result
+            setTimeout(() => {
+                if (highlightLocation.page !== currentPage) {
+                    setCurrentPage(highlightLocation.page);
+                }
+                // Try to find index on this page?
+                // The search effect below will auto-populate searchResults.
+                // We just need to ensure the viewer jumps to the right spot.
+            }, 100);
+        }
+    }, [highlightLocation]);
 
     function onPdfLoadSuccess({ numPages }: { numPages: number }) {
         setNumPdfPages(numPages);
         setIsPdfLoaded(true);
+        setPdfError(null);
     }
+
+    function onPdfLoadError(error: Error) {
+        console.error('[PDF Viewer] Failed to load PDF:', error);
+        setPdfError(`Failed to load PDF: ${error.message}`);
+        setIsPdfLoaded(false);
+    }
+
+    // Reset PDF state when fileUrl changes
+    useEffect(() => {
+        setPdfError(null);
+        setIsPdfLoaded(false);
+        setNumPdfPages(null);
+        setCurrentPage(1);
+    }, [fileUrl]);
+
     const [editedContent, setEditedContent] = useState(content);
     const [hasChanges, setHasChanges] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -1559,20 +1602,32 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                     {/* PDF Full View Mode */}
                     {viewMode === 'pdf' && fileUrl ? (
                         <div className="flex-1 bg-gray-100 dark:bg-slate-900 overflow-y-auto flex justify-center p-4 relative">
-                            <Document
-                                file={fileUrl}
-                                onLoadSuccess={onPdfLoadSuccess}
-                                loading={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
-                                className="shadow-xl"
-                            >
-                                <PdfPage
-                                    pageNumber={currentPage}
-                                    scale={zoomLevel / 100}
-                                    renderTextLayer={false}
-                                    renderAnnotationLayer={false}
-                                    className="shadow-lg mb-4"
-                                />
-                            </Document>
+                            {pdfError ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                                    <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
+                                        <FileText className="w-8 h-8 text-red-500" />
+                                    </div>
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Unable to Display PDF</h3>
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 max-w-md mb-4">{pdfError}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-500">File path: {fileUrl}</p>
+                                </div>
+                            ) : (
+                                <Document
+                                    file={fileUrl}
+                                    onLoadSuccess={onPdfLoadSuccess}
+                                    onLoadError={onPdfLoadError}
+                                    loading={<div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}
+                                    className="shadow-xl"
+                                >
+                                    <PdfPage
+                                        pageNumber={currentPage}
+                                        scale={zoomLevel / 100}
+                                        renderTextLayer={false}
+                                        renderAnnotationLayer={false}
+                                        className="shadow-lg mb-4"
+                                    />
+                                </Document>
+                            )}
                         </div>
                     ) : (
 

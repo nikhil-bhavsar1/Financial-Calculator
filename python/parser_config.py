@@ -132,7 +132,7 @@ class ParserConfig:
     max_debug_entries: int = 100
     
     # Output Settings
-    include_raw_text: bool = False
+    include_raw_text: bool = True
     include_debug_info: bool = True
     
     def to_dict(self) -> Dict[str, Any]:
@@ -371,7 +371,8 @@ class FinancialLineItem:
             "isTotal": self.is_total,
             "isSubtotal": self.is_subtotal,
             "isImportant": self.is_important,
-            "sourcePage": self.source_page,
+            "sourcePage": f"Page {self.source_page}" if self.source_page > 0 else "",
+            "rawLine": self.raw_line,
         }
 
 

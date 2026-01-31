@@ -3,6 +3,7 @@
 
 mod settings;
 mod ollama;
+mod python_bridge;
 
 use settings::SettingsStore;
 use tauri::Manager;
@@ -11,6 +12,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
             let settings_store = settings::SettingsStore::new(&app_handle)
@@ -59,6 +61,9 @@ fn main() {
             ollama::generate_completion,
             ollama::get_chat_history,
             ollama::clear_chat_history,
+            // Python bridge commands
+            python_bridge::run_python_analysis,
+            python_bridge::update_terminology_mapping,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

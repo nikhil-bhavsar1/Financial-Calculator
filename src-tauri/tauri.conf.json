@@ -1,5 +1,5 @@
 {
-    "identifier": "com.financial.calculator",
+    "identifier": "com.yourcompany.yourapp",
     "build": {
         "beforeDevCommand": "npm run dev",
         "beforeBuildCommand": "npm run build",
@@ -13,26 +13,35 @@
                 "title": "Financial Calculator",
                 "width": 1200,
                 "height": 800,
-                "devtools": true,
-                "url": "http://localhost:1420"
+                "resizable": true,
+                "fullscreen": false
             }
         ],
         "security": {
             "csp": null,
-            "dangerousDisableAssetCspModification": true
-        },
-        "withGlobalTauri": true
+            "capabilities": [
+                "main_capabilities"
+            ],
+            "assetProtocol": {
+                "enable": true,
+                "scope": ["**"]
+            }
+        }
     },
     "bundle": {
         "active": true,
         "targets": "all",
-        "externalBin": [
-            "binaries/api-server"
+        "icon": [
+            "icons/icon.png"
+        ],
+        "resources": [
+            "python/ollama_service.py"
         ]
     },
     "plugins": {
         "shell": {
             "open": true
-        }
+        },
+        "fs": {}
     }
 }

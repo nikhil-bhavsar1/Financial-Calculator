@@ -12,6 +12,7 @@ export interface FinancialItem {
   variation: number;
   variationPercent: number;
   sourcePage: string;
+  rawLine?: string;
   isAutoCalc?: boolean;
   hasWarning?: boolean;
   calculationError?: string;

@@ -9,9 +9,10 @@ import { SettingsModal } from './components/SettingsModal';
 import { KnowledgeBaseModal } from './components/KnowledgeBaseModal';
 import { DocumentViewer } from './components/DocumentViewer';
 import { FinancialItem, InputStatus, MissingInputItem, MetricGroup, AppSettings, TermMapping } from './types';
-import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, Database, Upload } from 'lucide-react';
+import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, Database, Upload, AlertCircle } from 'lucide-react';
 import { callAiProvider } from './services/geminiService';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { LLMSettingsPanel } from './src/components/LLMSettingsPanel';
 // import { parseFileWithPython, calculateMetricsWithPython } from './services/pythonBridge';
 import { runPythonAnalysis, updateTerminologyMapping } from './services/tauriBridge';
@@ -27,6 +28,9 @@ const MOCK_MISSING_INPUTS: MissingInputItem[] = [];
 function App() {
   const [activeTab, setActiveTab] = useState<'extracted' | 'metrics' | 'document' | 'captured'>('extracted');
   const [documentPage, setDocumentPage] = useState(1);
+  const [highlightLocation, setHighlightLocation] = useState<{ page: number, text: string } | null>(null);
+
+  const [documentTitle, setDocumentTitle] = useState<string | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -76,6 +80,58 @@ function App() {
     status: string;
     startTime: number;
   } | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Live elapsed time timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (isPythonProcessing && processingProgress?.startTime) {
+      interval = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - processingProgress.startTime) / 1000));
+      }, 1000);
+    } else {
+      setElapsedTime(0);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isPythonProcessing, processingProgress?.startTime]);
+
+  // Listen for PDF progress events from Rust backend
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    if (isPythonProcessing) {
+      listen('pdf-progress', (event) => {
+        const progress = event.payload as {
+          currentPage: number;
+          totalPages: number;
+          percentage: number;
+          message: string;
+        };
+
+        setProcessingProgress(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            currentPage: progress.currentPage,
+            totalPages: progress.totalPages,
+            percentage: progress.percentage,
+            status: progress.message
+          };
+        });
+      }).then(fn => {
+        unlisten = fn;
+      });
+    }
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [isPythonProcessing]);
 
   // Toggle sample data
   const toggleSampleData = () => {
@@ -311,6 +367,13 @@ function App() {
         const pageNum = parseInt(match[1]);
         if (!isNaN(pageNum)) {
           setDocumentPage(pageNum);
+
+          // Set highlight location to trigger search in DocumentViewer
+          setHighlightLocation({
+            page: pageNum,
+            text: item.label // Search for the label text as a proxy for the line
+          });
+
           setActiveTab('document');
         }
       }
@@ -319,12 +382,44 @@ function App() {
 
   const safeString = (s: any) => (s || '').toString();
 
+  const extractTitleFromFilename = (filename: string): string => {
+    // Remove extension
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+
+    // Split by common delimiters
+    const parts = nameWithoutExt.split(/[_\-\s]+/);
+
+    // Find year (4 digits starting with 19 or 20)
+    const yearPart = parts.find(p => /^(19|20)\d{2}$/.test(p));
+
+    // Find company name parts (length > 2, not a year, not common noise words)
+    const noiseWords = ['ar', 'annual', 'report', 'financial', 'statement', 'fy', 'q1', 'q2', 'q3', 'q4'];
+    const companyParts = parts.filter(p => {
+      const lower = p.toLowerCase();
+      return p.length > 2 && !/^\d+$/.test(p) && !noiseWords.includes(lower);
+    });
+
+    let title = "";
+    if (companyParts.length > 0) {
+      title = companyParts.join(" ");
+    } else {
+      title = nameWithoutExt;
+    }
+
+    if (yearPart) {
+      title += ` ${yearPart}`;
+    }
+
+    return title;
+  };
+
   /* 
    * Handle file upload by calling Python sidecar via Tauri Bridge
    * Now accepts 'content' which is the file content (base64 encoded for binary files)
    */
   const handleUploadSuccess = async (filePath: string, type: string, fileName: string, content?: string) => {
     setIsPythonProcessing(true);
+    setUploadError(null); // Clear previous errors
     setProcessingProgress({
       fileName: fileName,
       percentage: 0,
@@ -350,6 +445,10 @@ function App() {
       setFileUrl(null);
       setFileType('text');
     }
+
+    // Set initial title from filename
+    const dynamicTitle = extractTitleFromFilename(fileName);
+    setDocumentTitle(dynamicTitle);
 
     console.log(`[Upload] Processing file via Tauri: ${filePath}, content: ${content ? content.length + ' chars' : 'none'}`);
 
@@ -453,14 +552,30 @@ function App() {
           console.log("[Upload] No structured items found in response.");
         }
       } else {
-        console.error("Python Error:", response.message);
-        // Don't alert for every file in a batch, just log/toast?
-        // setRawDocumentContent(`Error processing file: ${response.message || 'Unknown error'}`);
+        // Handle error response
+        const errorMessage = response.message || response.error || 'Unknown error occurred during parsing';
+        console.error("[Upload] Python Error:", errorMessage);
+        setUploadError(`Failed to parse ${fileName}: ${errorMessage}`);
+
+        // Still set document content to show what we have
+        setRawDocumentContent(prev => {
+          const errorMsg = `Error processing file: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
+          if (!prev) return errorMsg;
+          return prev + `\n\n\n=================================================================\n=== ERROR: ${fileName} ===\n=================================================================\n\n` + errorMsg;
+        });
       }
 
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("[Upload] Failed to call Python:", error);
-      // setRawDocumentContent(`Failed to process: ${filePath}\n\nError: ${error}`);
+      setUploadError(`Failed to process ${fileName}: ${errorMessage}`);
+
+      // Set error in document content
+      setRawDocumentContent(prev => {
+        const errorMsg = `Failed to process: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
+        if (!prev) return errorMsg;
+        return prev + `\n\n\n=================================================================\n=== ERROR: ${fileName} ===\n=================================================================\n\n` + errorMsg;
+      });
     } finally {
       setIsPythonProcessing(false);
       setProcessingProgress(null);
@@ -702,6 +817,7 @@ function App() {
           title="Financial Document"
           initialPage={documentPage}
           className="flex-1 border-none rounded-none"
+          highlightLocation={highlightLocation} // Pass highlight prop
         />
 
         {!rawDocumentContent && !isPythonProcessing && (
@@ -748,6 +864,7 @@ function App() {
         onUploadClick={() => setIsUploadModalOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenKnowledgeBase={() => setIsKbOpen(true)}
+        title={documentTitle || undefined}
       />
 
       {/* Tab Navigation Area */}
@@ -873,6 +990,27 @@ function App() {
             </div>
           )}
 
+          {/* Upload Error Banner */}
+          {uploadError && !isPythonProcessing && (
+            <div className="m-6 mb-0 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-900 dark:text-red-100 text-sm relative animate-fadeIn shadow-lg">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="font-bold mb-1">Upload Error</h4>
+                  <div className="leading-relaxed opacity-90 whitespace-pre-wrap">
+                    {uploadError}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setUploadError(null)}
+                  className="absolute top-3 right-3 text-red-400 hover:text-red-700 dark:hover:text-red-200"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Python Processing Loading State - Enhanced */}
           {isPythonProcessing && (
             <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 z-50 flex items-center justify-center backdrop-blur-sm">
@@ -924,9 +1062,7 @@ function App() {
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 font-mono">
-                      {processingProgress?.startTime
-                        ? `${Math.floor((Date.now() - processingProgress.startTime) / 1000)}s`
-                        : '—'}
+                      {elapsedTime > 0 ? `${elapsedTime}s` : '—'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Elapsed</p>
                   </div>
