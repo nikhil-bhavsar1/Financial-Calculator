@@ -64,6 +64,7 @@ fn main() {
             // Python bridge commands
             python_bridge::run_python_analysis,
             python_bridge::update_terminology_mapping,
+            python_bridge::calculate_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

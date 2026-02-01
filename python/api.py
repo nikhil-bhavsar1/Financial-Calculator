@@ -47,6 +47,9 @@ def process_request(line):
         elif cmd == 'rag_search':
             return handle_rag(req)
         elif cmd == 'update_mapping':
+        return {'status': 'success', 'message': 'Mappings updated (mock)'}
+    elif cmd == 'calculate_metrics':
+        return handle_calculate_metrics(req)
             return {'status': 'success', 'message': 'Mappings updated (mock)'}
         else:
             return {'status': 'error', 'message': f'Unknown command {cmd}'}
@@ -224,3 +227,29 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def handle_calculate_metrics(req):
+    """Handle metrics calculation from parsed items."""
+    try:
+        from metrics_engine import calculate_metrics_from_items
+        
+        items_json = req.get('items_json')
+        
+        if not items_json:
+            return {'status': 'error', 'message': 'No items provided'}
+        
+        print(f"[api.py] Calculating metrics from parsed items", file=sys.stderr)
+        metrics_json = calculate_metrics_from_items(items_json)
+        
+        return {
+            'status': 'success',
+            'metrics': json.loads(metrics_json)
+        }
+    except Exception as e:
+        import traceback
+        return {
+            'status': 'error',
+            'message': f'Metrics calculation error: {str(e)}',
+            'traceback': traceback.format_exc()
+        }

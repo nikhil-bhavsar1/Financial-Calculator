@@ -268,3 +268,63 @@ pub async fn update_terminology_mapping(
     let _ = child.wait();
     Ok(())
 }
+
+#[tauri::command]
+pub async fn calculate_metrics(
+    app: AppHandle,
+    items_json: String,
+) -> Result<PythonResponse, String> {
+    let python_cmd = find_python().ok_or("Python not found")?;
+    let api_script = find_api_script()?;
+    
+    let request = serde_json::json!({
+        "command": "calculate_metrics",
+        "items_json": items_json
+    });
+    
+    let mut child = Command::new(&python_cmd)
+        .arg(&api_script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn Python: {}", e))?;
+    
+    eprintln!("[PythonBridge] Calculating metrics from {} items", items_json.len());
+    
+    // Read response from stdout
+    let stdout = child.stdout.take()
+        .ok_or("Failed to capture Python stdout")?;
+    let reader = BufReader::new(stdout);
+    
+    let mut final_response: Option<PythonResponse> = None;
+    let timeout_duration = Duration::from_secs(60); // 60 second timeout for metrics calc
+    
+    for line in reader.lines() {
+        if let Ok(line) = line {
+            if !line.trim().starts_with('{') {
+                continue;
+            }
+            
+            eprintln!("[PythonBridge] stdout: {}", &line[..line.len().min(200)]);
+            
+            // Try to parse as final response
+            if let Ok(response) = serde_json::from_str::<PythonResponse>(&line) {
+                final_response = Some(response);
+                break;
+            }
+        }
+    }
+    
+    // Wait for process to finish
+    let _ = child.wait();
+    eprintln!("[PythonBridge] Metrics calculation complete");
+    
+    match final_response {
+        Some(response) => {
+            eprintln!("[PythonBridge] Returning metrics response");
+            Ok(response)
+        }
+        None => Err("No response from Python for metrics calculation".to_string()),
+    }
+}

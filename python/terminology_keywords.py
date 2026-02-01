@@ -486,6 +486,48 @@ print_database_summary()
 # BACKWARDS COMPATIBILITY
 # =============================================================================
 
+# =============================================================================
+# BACKWARDS COMPATIBILITY FUNCTIONS (for rag_engine.py)
+# =============================================================================
+
+def get_metric_ids_for_term(term_key: str) -> List[str]:
+    """Get metric IDs associated with a term (backwards compatibility)."""
+    term_data = TERMINOLOGY_MAP.get(term_key, {})
+    return term_data.get('metric_ids', [])
+
+
+def get_term_for_keyword(keyword: str) -> Optional[str]:
+    """Get term key for a given keyword (backwards compatibility)."""
+    keyword_lower = keyword.lower().strip()
+    if keyword_lower in KEYWORD_TO_TERM:
+        term_list = KEYWORD_TO_TERM[keyword_lower]
+        if term_list:
+            return term_list[0].get('term_key')
+    return None
+
+
+def get_boost_for_keyword(keyword: str) -> float:
+    """Get boost weight for a keyword (backwards compatibility)."""
+    keyword_lower = keyword.lower().strip()
+    return KEYWORD_BOOST.get(keyword_lower, 1.0)
+
+
+def get_all_keywords() -> List[str]:
+    """Get all keywords in the terminology database (backwards compatibility)."""
+    return list(KEYWORD_TO_TERM.keys())
+
+
+def get_standards_for_term(term_key: str) -> Dict[str, List[str]]:
+    """Get accounting standards associated with a term (backwards compatibility)."""
+    term_data = TERMINOLOGY_MAP.get(term_key, {})
+    return term_data.get('related_standards', {})
+
+
+def get_term_details(term_key: str) -> Optional[Dict]:
+    """Get full details for a term."""
+    return TERMINOLOGY_MAP.get(term_key)
+
+
 __all__ = [
     'TERMINOLOGY_MAP',
     'KEYWORD_TO_TERM',
@@ -500,5 +542,12 @@ __all__ = [
     'search_terms_by_keyword',
     'get_related_terms',
     'get_database_stats',
-    'print_database_summary'
+    'print_database_summary',
+    # Backwards compatibility functions
+    'get_metric_ids_for_term',
+    'get_term_for_keyword',
+    'get_boost_for_keyword',
+    'get_all_keywords',
+    'get_standards_for_term',
+    'get_term_details'
 ]

@@ -31,10 +31,29 @@ from markdown_converter import MarkdownConverter
 from parser_financial_stmt_detection import FinancialStatementDetector, FinancialPatternMatcher
 from parser_table_extraction import TableExtractor
 from parser_ocr import OCRProcessor
+
+# Import terminology database
 try:
     from terminology_keywords import TERMINOLOGY_MAP, KEYWORD_TO_TERM, KEYWORD_BOOST, find_all_matching_terms, ALL_TERMS
 except ImportError:
     from python.terminology_keywords import TERMINOLOGY_MAP, KEYWORD_TO_TERM, KEYWORD_BOOST, find_all_matching_terms, ALL_TERMS
+
+# Import NEW matching system for enhanced data capture
+try:
+    from matching_engine import MultiLayerMatchingEngine, MatchResult
+    from preprocessing import TextPreprocessor
+    from section_classifier import SectionClassifier
+    from keyword_expansion import KeywordExpander
+    from relationship_mapper import RelationshipMapper
+    ENHANCED_MATCHING_AVAILABLE = True
+except ImportError as e:
+    print(f"[parsers.py] Enhanced matching not available: {e}", file=sys.stderr)
+    MultiLayerMatchingEngine = None
+    TextPreprocessor = None
+    SectionClassifier = None
+    KeywordExpander = None
+    RelationshipMapper = None
+    ENHANCED_MATCHING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +140,30 @@ class FinancialParser:
         
         # OCR processor (lazy initialization)
         self._ocr_processor: Optional[OCRProcessor] = None
+        
+        # Initialize NEW enhanced matching system (if available)
+        self._matching_engine = None
+        self._preprocessor = None
+        self._section_classifier = None
+        self._keyword_expander = None
+        self._relationship_mapper = None
+        
+        if ENHANCED_MATCHING_AVAILABLE:
+            try:
+                self._matching_engine = MultiLayerMatchingEngine()
+                self._preprocessor = TextPreprocessor()
+                self._section_classifier = SectionClassifier()
+                self._keyword_expander = KeywordExpander()
+                self._relationship_mapper = RelationshipMapper()
+                logger.info("[parsers.py] Enhanced matching system initialized successfully")
+            except Exception as e:
+                logger.warning(f"[parsers.py] Failed to initialize enhanced matching: {e}")
+                # Reset to None on failure
+                self._matching_engine = None
+                self._preprocessor = None
+                self._section_classifier = None
+                self._keyword_expander = None
+                self._relationship_mapper = None
         
         # State
         self._reset_state()
@@ -1052,30 +1095,78 @@ class FinancialParser:
         """
         Match text against unified cross-sectional terminology database.
         
-        Enhanced cross-sectional matching:
-        - Uses ALL 256+ terms from the unified database
-        - Cross-references ALL keywords from ALL accounting standards (IndAS, GAAP, IFRS)
-        - Unified keyword index enables matching across all standards simultaneously
-        - Word boundary matching prevents partial word matches
-        - Tokenized phrase matching for multi-word terms
-        - Priority scoring based on term importance and keyword specificity
+        ENHANCED: Now COMBINES both old and new matching systems:
+        - Uses original matching as BASE (proven to work)
+        - Enhances with new system for additional matches (OCR, abbreviations, fuzzy)
+        - NEVER removes matches that the old system found
+        - Prioritizes matches with better confidence/scores
+        
+        This ensures we capture AT LEAST as many items as before, plus additional ones.
         """
         text_lower = text.lower().strip()
         
         if not text_lower:
             return None
         
-        # Use the unified comprehensive matching function
-        all_matches = find_all_matching_terms(text_lower, min_keyword_length=3)
+        # STEP 1: Always use ORIGINAL matching as base (proven to work)
+        original_matches = find_all_matching_terms(text_lower, min_keyword_length=3)
         
+        # STEP 2: Try to get ADDITIONAL matches from enhanced system
+        enhanced_matches = []
+        if ENHANCED_MATCHING_AVAILABLE and self._matching_engine:
+            try:
+                # Use preprocessing first
+                if self._preprocessor:
+                    preprocessed = self._preprocessor.preprocess(text)
+                    canonical_text = preprocessed.canonical_form
+                    sign_multiplier = preprocessed.sign_multiplier
+                else:
+                    canonical_text = text_lower
+                    sign_multiplier = 1
+                
+                # Use multi-layer matching engine
+                enhanced_results = self._matching_engine.match_text(text)
+                
+                # Convert to same format as original
+                for match in enhanced_results:
+                    if match.term_key not in [m['term_key'] for m in original_matches]:
+                        # This is a NEW match not found by original system
+                        enhanced_matches.append({
+                            'term_key': match.term_key,
+                            'term_id': match.term_key,
+                            'term_label': match.term_label,
+                            'category': match.category,
+                            'score': match.confidence_score * 100,  # Scale to match original
+                            'boost': match.boost,
+                            'metric_ids': match.metric_ids,
+                            'data_type': 'currency',
+                            'sign_convention': 'positive',
+                            'match_type': match.match_type,
+                            'enhanced': True
+                        })
+                
+                if enhanced_matches:
+                    self._log_debug(f"  Enhanced system found {len(enhanced_matches)} additional matches")
+            except Exception as e:
+                self._log_debug(f"  Enhanced matching error: {e}")
+        
+        # STEP 3: COMBINE both sets of matches (original + enhanced)
+        all_matches = original_matches + enhanced_matches
+        
+        # STEP 4: Return best match from combined set
         if all_matches:
+            # Sort by score to get best match
+            all_matches.sort(key=lambda x: x.get('score', 0), reverse=True)
+            
             # Get the best match (highest score)
             best = all_matches[0]
             
             # Log all matches for debugging (first 3)
             if len(all_matches) > 1:
-                self._log_debug(f"  Multiple matches for '{text[:40]}...': " + 
-                              ", ".join([f"{m['term_key']}({m['score']:.1f})" for m in all_matches[:3]]))
+                match_summary = ", ".join([f"{m['term_key']}({m['score']:.1f})" for m in all_matches[:3]])
+                enhanced_count = sum(1 for m in all_matches if m.get('enhanced'))
+                self._log_debug(f"  Combined matches for '{text[:40]}...': {match_summary} "
+                              f"({enhanced_count} enhanced, {len(all_matches)} total)")
             
             # Get full term data from unified map
             term_data = TERMINOLOGY_MAP.get(best['term_key'], {})
@@ -1083,21 +1174,24 @@ class FinancialParser:
             return {
                 'key': best['term_key'],
                 'data': {
-                    'category': best['category'],
+                    'category': best.get('category', term_data.get('category', 'Unknown')),
                     'keywords': term_data.get('keywords_unified', []),
                     'keywords_indas': term_data.get('keywords_indas', []),
                     'keywords_gaap': term_data.get('keywords_gaap', []),
                     'keywords_ifrs': term_data.get('keywords_ifrs', []),
-                    'metric_ids': best['metric_ids'],
-                    'boost': best['boost'],
-                    'label': best['term_label'],
+                    'metric_ids': best.get('metric_ids', []),
+                    'boost': best.get('boost', 1.0),
+                    'label': best.get('term_label', term_data.get('label', best['term_key'])),
                     'data_type': best.get('data_type', 'currency'),
                     'sign_convention': best.get('sign_convention', 'positive'),
-                    'related_standards': term_data.get('related_standards', {})
+                    'related_standards': term_data.get('related_standards', {}),
+                    'enhanced': best.get('enhanced', False)
                 },
-                'matched_keyword': best['matched_keyword'],
-                'score': best['score'],
-                'all_matches': all_matches  # Include all matches for reference
+                'matched_keyword': best.get('matched_keyword', ''),
+                'score': best.get('score', 0),
+                'all_matches': all_matches,  # Include all matches for reference
+                'total_matches': len(all_matches),
+                'enhanced_matches': sum(1 for m in all_matches if m.get('enhanced'))
             }
         
         # Fallback: Enhanced tokenized phrase matching
