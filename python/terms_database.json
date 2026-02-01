@@ -2,8 +2,8 @@
   "metadata": {
     "version": "2.0",
     "description": "Unified Comprehensive Financial Terminology Database",
-    "total_terms": 256,
-    "total_keywords": 2082,
+    "total_terms": 259,
+    "total_keywords": 2102,
     "unique_keywords": 1899,
     "categories": [
       "Balance Sheet - Assets",
@@ -144,7 +144,9 @@
         "tangible fixed assets",
         "plant and equipment",
         "property, plant and equipment",
-        "property plant equipment"
+        "property plant equipment",
+        "property plant and equipment net",
+        "propertyplant and equipmentnet"
       ],
       "related_standards": {},
       "aliases": [],
@@ -1028,7 +1030,10 @@
         "customer receivables",
         "accounts receivable net of allowance",
         "net receivables",
-        "receivables from contracts with customers"
+        "receivables from contracts with customers",
+        "accounts receivable net",
+        "receivables net",
+        "accounts receivablenet"
       ],
       "related_standards": {},
       "aliases": [],
@@ -1605,7 +1610,8 @@
         "bank borrowings",
         "loans and borrowings",
         "interest-bearing loans",
-        "long term borrowings"
+        "long term borrowings",
+        "term debt"
       ],
       "related_standards": {},
       "aliases": [],
@@ -2785,7 +2791,9 @@
         "translation reserve",
         "hedging reserve",
         "fair value reserve",
-        "accumulated oci"
+        "accumulated oci",
+        "accumulated other comprehensive loss",
+        "accumulated other comprehensive income loss"
       ],
       "related_standards": {},
       "aliases": [],
@@ -10497,6 +10505,133 @@
       "priority": 1,
       "is_computed": false,
       "components": []
+    },
+    {
+      "id": "total_expenses",
+      "key": "total_expenses",
+      "label": "Total Expenses",
+      "category": "Income Statement",
+      "description": "Total of all expenses including cost of goods sold, operating expenses, finance costs, and taxes",
+      "keywords_indas": [
+        "total expenses",
+        "total expenditure",
+        "expenses total"
+      ],
+      "keywords_gaap": [
+        "total expenses",
+        "total costs and expenses",
+        "operating and non-operating expenses"
+      ],
+      "keywords_ifrs": [
+        "total expenses",
+        "total expenditure"
+      ],
+      "keywords_unified": [
+        "total expenses",
+        "total expenditure",
+        "expenses total",
+        "total costs and expenses",
+        "operating and non-operating expenses"
+      ],
+      "related_standards": {},
+      "aliases": [],
+      "calculation": "",
+      "sign_convention": "positive",
+      "data_type": "currency",
+      "priority": 1,
+      "is_computed": true,
+      "components": [
+        "cost_of_goods_sold",
+        "operating_expenses",
+        "finance_cost",
+        "tax_expense"
+      ]
+    },
+    {
+      "id": "operating_expenses",
+      "key": "operating_expenses",
+      "label": "Operating Expenses",
+      "category": "Income Statement",
+      "description": "Operating costs excluding cost of goods sold",
+      "keywords_indas": [
+        "operating expenses",
+        "operating costs",
+        "operational expenses",
+        "other operating expenses"
+      ],
+      "keywords_gaap": [
+        "operating expenses",
+        "operating costs",
+        "selling, general and administrative expenses",
+        "sg&a"
+      ],
+      "keywords_ifrs": [
+        "operating expenses",
+        "operating costs",
+        "administrative expenses",
+        "selling expenses"
+      ],
+      "keywords_unified": [
+        "operating expenses",
+        "operating costs",
+        "operational expenses",
+        "other operating expenses",
+        "selling general and administrative expenses",
+        "sg&a",
+        "selling and administrative expenses"
+      ],
+      "related_standards": {},
+      "aliases": [],
+      "calculation": "",
+      "sign_convention": "positive",
+      "data_type": "currency",
+      "priority": 1,
+      "is_computed": false,
+      "components": []
+    },
+    {
+      "id": "total_borrowings",
+      "key": "total_borrowings",
+      "label": "Total Borrowings",
+      "category": "Balance Sheet - Liabilities",
+      "description": "Total of all borrowings including short-term and long-term debt",
+      "keywords_indas": [
+        "total borrowings",
+        "secured and unsecured loans",
+        "debt"
+      ],
+      "keywords_gaap": [
+        "total debt",
+        "total borrowings",
+        "debt outstanding",
+        "borrowings"
+      ],
+      "keywords_ifrs": [
+        "borrowings",
+        "loans and borrowings",
+        "interest bearing liabilities"
+      ],
+      "keywords_unified": [
+        "total borrowings",
+        "total debt",
+        "debt",
+        "debt outstanding",
+        "borrowings",
+        "secured and unsecured loans",
+        "loans and borrowings",
+        "interest bearing liabilities"
+      ],
+      "related_standards": {},
+      "aliases": [],
+      "calculation": "",
+      "sign_convention": "positive",
+      "data_type": "currency",
+      "priority": 1,
+      "is_computed": true,
+      "components": [
+        "short_term_borrowings",
+        "long_term_borrowings"
+      ]
     }
   ],
   "indexes": {
