@@ -1,10 +1,9 @@
-def owner_earnings_buffett(net_income: float, depreciation_amortization: float, non_cash_charges: float, average_annual_capex: float, additional_wc_requirements: float) -> float:
+def owner_earnings_buffett(profit_for_the_year: float, depreciation_amortization: float, non_cash_charges: float, average_annual_capex: float, additional_wc_requirements: float) -> float:
     """
     Owner Earnings (Buffett's Formula)
     Formula: Owner Earnings = Net Income + D&A + Other Non-Cash Charges - Average Annual CapEx - Additional WC Requirements
     """
-    return net_income + depreciation_amortization + non_cash_charges - average_annual_capex - additional_wc_requirements
-
+    return profit_for_the_year + depreciation_amortization + non_cash_charges - average_annual_capex - additional_wc_requirements
 
 def look_through_earnings(reported_earnings: float, share_of_undistributed_earnings: float) -> float:
     """
@@ -13,14 +12,12 @@ def look_through_earnings(reported_earnings: float, share_of_undistributed_earni
     """
     return reported_earnings + share_of_undistributed_earnings
 
-
 def intrinsic_value_growth_rate(dividend_payout_ratio: float, return_on_retained_earnings: float) -> float:
     """
     Intrinsic Value Growth Rate
     Formula: Growth Rate = (1 - Dividend Payout Ratio) × Return on Retained Earnings
     """
     return (1 - dividend_payout_ratio) * return_on_retained_earnings
-
 
 def return_on_retained_earnings(change_in_eps: float, cumulative_retained_earnings_per_share: float) -> float:
     """
@@ -31,7 +28,6 @@ def return_on_retained_earnings(change_in_eps: float, cumulative_retained_earnin
         return 0
     return change_in_eps / cumulative_retained_earnings_per_share
 
-
 def return_spread(roic: float, wacc: float) -> float:
     """
     Return Spread (Economic Moat Indicator)
@@ -39,7 +35,6 @@ def return_spread(roic: float, wacc: float) -> float:
     Strong moat: Spread > 5% sustained over time
     """
     return roic - wacc
-
 
 def return_on_tangible_capital(nopat: float, net_working_capital: float, net_fixed_assets: float) -> float:
     """
@@ -51,7 +46,6 @@ def return_on_tangible_capital(nopat: float, net_working_capital: float, net_fix
         return 0
     return nopat / denominator
 
-
 def pricing_power_test(price_increase_percentage: float, volume_loss_percentage: float) -> bool:
     """
     Pricing Power Test
@@ -61,8 +55,7 @@ def pricing_power_test(price_increase_percentage: float, volume_loss_percentage:
     """
     return volume_loss_percentage < 10.0
 
-
-def magic_formula_earnings_yield(ebit: float, enterprise_value: float) -> float:
+def magic_formula_earnings_yield(operating_profit: float, enterprise_value: float) -> float:
     """
     Earnings Yield (Magic Formula)
     Formula: Earnings Yield = EBIT / Enterprise Value
@@ -70,10 +63,9 @@ def magic_formula_earnings_yield(ebit: float, enterprise_value: float) -> float:
     """
     if enterprise_value == 0:
         return 0
-    return ebit / enterprise_value
+    return operating_profit / enterprise_value
 
-
-def magic_formula_return_on_capital(ebit: float, net_working_capital: float, net_fixed_assets: float) -> float:
+def magic_formula_return_on_capital(operating_profit: float, net_working_capital: float, net_fixed_assets: float) -> float:
     """
     Return on Capital (Magic Formula)
     Formula: ROC = EBIT / (Net Working Capital + Net Fixed Assets)
@@ -82,8 +74,7 @@ def magic_formula_return_on_capital(ebit: float, net_working_capital: float, net
     denominator = net_working_capital + net_fixed_assets
     if denominator == 0:
         return 0
-    return ebit / denominator
-
+    return operating_profit / denominator
 
 def acquirers_multiple(enterprise_value: float, operating_earnings: float) -> float:
     """
@@ -96,46 +87,41 @@ def acquirers_multiple(enterprise_value: float, operating_earnings: float) -> fl
         return 0
     return enterprise_value / operating_earnings
 
-
-def shareholder_yield(dividends: float, buybacks: float, share_issuance: float, market_cap: float) -> float:
+def shareholder_yield(dividends: float, buybacks: float, share_issuance: float, market_capitalization: float) -> float:
     """
     Shareholder Yield
     Formula: Shareholder Yield = (Dividends + Buybacks - Share Issuance) / Market Cap
     """
-    if market_cap == 0:
+    if market_capitalization == 0:
         return 0
-    return (dividends + buybacks - share_issuance) / market_cap
+    return (dividends + buybacks - share_issuance) / market_capitalization
 
-
-def net_payout_yield(dividends: float, net_buybacks: float, market_cap: float) -> float:
+def net_payout_yield(dividends: float, net_buybacks: float, market_capitalization: float) -> float:
     """
     Net Payout Yield
     Formula: Net Payout = (Dividends + Net Buybacks) / Market Cap
     """
-    if market_cap == 0:
+    if market_capitalization == 0:
         return 0
-    return (dividends + net_buybacks) / market_cap
+    return (dividends + net_buybacks) / market_capitalization
 
-
-def total_payout_yield(dividends: float, buybacks: float, debt_reduction: float, market_cap: float) -> float:
+def total_payout_yield(dividends: float, buybacks: float, debt_reduction: float, market_capitalization: float) -> float:
     """
     Total Payout Yield
     Formula: Total Payout = (Dividends + Buybacks + Debt Reduction) / Market Cap
     """
-    if market_cap == 0:
+    if market_capitalization == 0:
         return 0
-    return (dividends + buybacks + debt_reduction) / market_cap
+    return (dividends + buybacks + debt_reduction) / market_capitalization
 
-
-def gross_profitability(revenue: float, cogs: float, total_assets: float) -> float:
+def gross_profitability(total_revenue: float, cogs: float, total_assets: float) -> float:
     """
     Gross Profitability
     Formula: Gross Profitability = (Revenue - COGS) / Total Assets
     """
     if total_assets == 0:
         return 0
-    return (revenue - cogs) / total_assets
-
+    return (total_revenue - cogs) / total_assets
 
 def asset_growth(current_total_assets: float, prior_total_assets: float) -> float:
     """
@@ -147,8 +133,7 @@ def asset_growth(current_total_assets: float, prior_total_assets: float) -> floa
         return 0
     return (current_total_assets - prior_total_assets) / prior_total_assets
 
-
-def accruals_ratio_quality(net_income: float, operating_cash_flow: float, average_total_assets: float) -> float:
+def accruals_ratio_quality(profit_for_the_year: float, operating_cash_flow: float, average_total_assets: float) -> float:
     """
     Accrual Ratio (Earnings Quality)
     Formula: Accruals = (Net Income - Operating Cash Flow) / Average Total Assets
@@ -156,10 +141,9 @@ def accruals_ratio_quality(net_income: float, operating_cash_flow: float, averag
     """
     if average_total_assets == 0:
         return 0
-    return (net_income - operating_cash_flow) / average_total_assets
+    return (profit_for_the_year - operating_cash_flow) / average_total_assets
 
-
-def altman_z_score_private(working_capital: float, retained_earnings: float, ebit: float, book_value_equity: float, total_liabilities: float, sales: float, total_assets: float) -> float:
+def altman_z_score_private(working_capital: float, retained_earnings: float, operating_profit: float, book_value_equity: float, total_liabilities: float, sales: float, total_assets: float) -> float:
     """
     Altman Z-Score for Private Companies
     Formula: Z' = 0.717A + 0.847B + 3.107C + 0.420D + 0.998E
@@ -178,11 +162,10 @@ def altman_z_score_private(working_capital: float, retained_earnings: float, ebi
     """
     A = working_capital / total_assets if total_assets != 0 else 0
     B = retained_earnings / total_assets if total_assets != 0 else 0
-    C = ebit / total_assets if total_assets != 0 else 0
+    C = operating_profit / total_assets if total_assets != 0 else 0
     D = book_value_equity / total_liabilities if total_liabilities != 0 else 0
     E = sales / total_assets if total_assets != 0 else 0
-    return 0.717 * A + 0.847 * B + 3.107 * C + 0.420 * D + 0.998 * E
-
+    return 0.717 * A + 0.847 * B + 3.107 * C + 0.42 * D + 0.998 * E
 
 def normalized_earnings(earnings_over_cycle: list) -> float:
     """
@@ -193,7 +176,6 @@ def normalized_earnings(earnings_over_cycle: list) -> float:
         return 0
     return sum(earnings_over_cycle) / len(earnings_over_cycle)
 
-
 def shiller_pe_ratio(current_price: float, average_10yr_inflation_adjusted_earnings: float) -> float:
     """
     Shiller P/E (CAPE Ratio)
@@ -202,7 +184,6 @@ def shiller_pe_ratio(current_price: float, average_10yr_inflation_adjusted_earni
     if average_10yr_inflation_adjusted_earnings == 0:
         return 0
     return current_price / average_10yr_inflation_adjusted_earnings
-
 
 def graham_dodd_pe(current_price: float, average_10yr_earnings: float) -> float:
     """
@@ -213,7 +194,6 @@ def graham_dodd_pe(current_price: float, average_10yr_earnings: float) -> float:
         return 0
     return current_price / average_10yr_earnings
 
-
 def four_factor_value_score(rank_pe: float, rank_pb: float, rank_ps: float, rank_dividend_yield: float) -> float:
     """
     4-Factor Value Score
@@ -222,14 +202,12 @@ def four_factor_value_score(rank_pe: float, rank_pb: float, rank_ps: float, rank
     """
     return rank_pe + rank_pb + rank_ps + rank_dividend_yield
 
-
 def six_factor_quality_value_score(rank_pe: float, rank_pb: float, rank_ev_ebit: float, rank_roe: float, rank_roa: float, rank_roic: float) -> float:
     """
     6-Factor Quality Value
     Formula: Score = Rank(P/E) + Rank(P/B) + Rank(EV/EBIT) + Rank(ROE) + Rank(ROA) + Rank(ROIC)
     """
     return rank_pe + rank_pb + rank_ev_ebit + rank_roe + rank_roa + rank_roic
-
 
 def value_composite_oshaughnessy(rank_pb: float, rank_pe: float, rank_ps: float, rank_pcf: float, rank_ev_ebitda: float, rank_shareholder_yield: float) -> float:
     """
@@ -244,7 +222,6 @@ def value_composite_oshaughnessy(rank_pb: float, rank_pe: float, rank_ps: float,
     """
     return (rank_pb + rank_pe + rank_ps + rank_pcf + rank_ev_ebitda + rank_shareholder_yield) / 6
 
-
 def ohlson_o_score(size: float, tlta: float, wcta: float, clca: float, oeneg: float, nita: float, futl: float, intwo: float, chin: float) -> float:
     """
     Ohlson O-Score
@@ -258,7 +235,6 @@ def ohlson_o_score(size: float, tlta: float, wcta: float, clca: float, oeneg: fl
     O = -1.32 - 0.407 * size + 6.03 * tlta - 1.43 * wcta + 0.076 * clca - 1.72 * oeneg - 2.37 * nita - 1.83 * futl + 0.285 * intwo - 0.521 * chin
     return 1 / (1 + math.exp(-O))
 
-
 def twelve_month_price_momentum(current_price: float, price_12_months_ago: float) -> float:
     """
     12-Month Price Momentum
@@ -266,8 +242,7 @@ def twelve_month_price_momentum(current_price: float, price_12_months_ago: float
     """
     if price_12_months_ago == 0:
         return 0
-    return (current_price / price_12_months_ago) - 1
-
+    return current_price / price_12_months_ago - 1
 
 def fifty_two_week_high_ratio(current_price: float, fifty_two_week_high: float) -> float:
     """
@@ -278,7 +253,6 @@ def fifty_two_week_high_ratio(current_price: float, fifty_two_week_high: float) 
         return 0
     return current_price / fifty_two_week_high
 
-
 def one_month_return(current_price: float, price_1_month_ago: float) -> float:
     """
     Short-Term Reversal (Contrarian)
@@ -287,10 +261,9 @@ def one_month_return(current_price: float, price_1_month_ago: float) -> float:
     """
     if price_1_month_ago == 0:
         return 0
-    return (current_price / price_1_month_ago) - 1
+    return current_price / price_1_month_ago - 1
 
-
-def greenblatt_earnings_yield(ebit: float, enterprise_value: float) -> float:
+def greenblatt_earnings_yield(operating_profit: float, enterprise_value: float) -> float:
     """
     Greenblatt's Earnings Yield
     Formula: EBIT / Enterprise Value
@@ -298,4 +271,4 @@ def greenblatt_earnings_yield(ebit: float, enterprise_value: float) -> float:
     """
     if enterprise_value == 0:
         return 0
-    return (ebit / enterprise_value) * 100
+    return operating_profit / enterprise_value * 100

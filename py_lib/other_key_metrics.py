@@ -1,13 +1,11 @@
 import math
 
-
 def normal_cdf(x: float) -> float:
     """
     Cumulative Normal Distribution Function
     Approximation using the error function
     """
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
-
 
 def economic_value_added(nopat: float, wacc: float, invested_capital: float) -> float:
     """
@@ -16,8 +14,7 @@ def economic_value_added(nopat: float, wacc: float, invested_capital: float) -> 
     Alternative: (ROIC - WACC) × Invested Capital
     Where: NOPAT = Net Operating Profit After Tax
     """
-    return nopat - (wacc * invested_capital)
-
+    return nopat - wacc * invested_capital
 
 def economic_value_added_roic(roic: float, wacc: float, invested_capital: float) -> float:
     """
@@ -25,7 +22,6 @@ def economic_value_added_roic(roic: float, wacc: float, invested_capital: float)
     Formula: (ROIC - WACC) × Invested Capital
     """
     return (roic - wacc) * invested_capital
-
 
 def market_value_added(market_value_of_firm: float, invested_capital: float) -> float:
     """
@@ -35,7 +31,6 @@ def market_value_added(market_value_of_firm: float, invested_capital: float) -> 
     """
     return market_value_of_firm - invested_capital
 
-
 def shareholder_value_added(return_on_investment: float, cost_of_capital: float, invested_capital: float) -> float:
     """
     Shareholder Value Added (SVA)
@@ -43,8 +38,7 @@ def shareholder_value_added(return_on_investment: float, cost_of_capital: float,
     """
     return (return_on_investment - cost_of_capital) * invested_capital
 
-
-def altman_z_score_public(working_capital: float, retained_earnings: float, ebit: float, market_value_equity: float, total_liabilities: float, sales: float, total_assets: float) -> float:
+def altman_z_score_public(working_capital: float, retained_earnings: float, operating_profit: float, market_value_equity: float, total_liabilities: float, sales: float, total_assets: float) -> float:
     """
     Altman Z-Score (Bankruptcy Prediction) - Public Manufacturing Companies
     Formula: Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
@@ -63,13 +57,12 @@ def altman_z_score_public(working_capital: float, retained_earnings: float, ebit
     """
     A = working_capital / total_assets
     B = retained_earnings / total_assets
-    C = ebit / total_assets
+    C = operating_profit / total_assets
     D = market_value_equity / total_liabilities
     E = sales / total_assets
     return 1.2 * A + 1.4 * B + 3.3 * C + 0.6 * D + 1.0 * E
 
-
-def piotroski_f_score(roa: float, operating_cash_flow: float, roa_previous: float, net_income: float, long_term_debt_current: float, long_term_debt_previous: float, current_ratio_current: float, current_ratio_previous: float, shares_issued: bool, gross_margin_current: float, gross_margin_previous: float, asset_turnover_current: float, asset_turnover_previous: float) -> int:
+def piotroski_f_score(roa: float, operating_cash_flow: float, roa_previous: float, profit_for_the_year: float, long_term_debt_current: float, long_term_debt_previous: float, current_ratio_current: float, current_ratio_previous: float, shares_issued: bool, gross_margin_current: float, gross_margin_previous: float, asset_turnover_current: float, asset_turnover_previous: float) -> int:
     """
     Piotroski F-Score (Quality Assessment)
     Score range: 0-9 (sum of nine binary scores)
@@ -90,14 +83,13 @@ def piotroski_f_score(roa: float, operating_cash_flow: float, roa_previous: floa
     9. Increase in asset turnover (1 point)
     """
     score = 0
-    
     if roa > 0:
         score += 1
     if operating_cash_flow > 0:
         score += 1
     if roa > roa_previous:
         score += 1
-    if operating_cash_flow > net_income:
+    if operating_cash_flow > profit_for_the_year:
         score += 1
     if long_term_debt_current < long_term_debt_previous:
         score += 1
@@ -109,9 +101,7 @@ def piotroski_f_score(roa: float, operating_cash_flow: float, roa_previous: floa
         score += 1
     if asset_turnover_current > asset_turnover_previous:
         score += 1
-    
     return score
-
 
 def beneish_m_score(dsri: float, gmi: float, aqi: float, sgi: float, depi: float, sgai: float, tata: float, lvgi: float) -> float:
     """
@@ -133,7 +123,6 @@ def beneish_m_score(dsri: float, gmi: float, aqi: float, sgi: float, depi: float
     """
     return -4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi + 0.115 * depi - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi
 
-
 def beta_systematic_risk(covariance_investment_market: float, variance_market: float) -> float:
     """
     Beta (Systematic Risk)
@@ -143,14 +132,12 @@ def beta_systematic_risk(covariance_investment_market: float, variance_market: f
     """
     return covariance_investment_market / variance_market
 
-
 def beta_alternative(correlation: float, standard_deviation_investment: float, standard_deviation_market: float) -> float:
     """
     Beta (Systematic Risk) - Alternative Formula
     Formula: ρi,m × (σi / σm)
     """
     return correlation * (standard_deviation_investment / standard_deviation_market)
-
 
 def jensens_alpha(actual_return: float, risk_free_rate: float, beta: float, market_return: float) -> float:
     """
@@ -159,7 +146,6 @@ def jensens_alpha(actual_return: float, risk_free_rate: float, beta: float, mark
     Where: Ri = Actual return of investment
     """
     return actual_return - (risk_free_rate + beta * (market_return - risk_free_rate))
-
 
 def tobins_q_ratio(market_value_firm: float, replacement_cost_assets: float) -> float:
     """
@@ -173,16 +159,14 @@ def tobins_q_ratio(market_value_firm: float, replacement_cost_assets: float) -> 
     """
     return market_value_firm / replacement_cost_assets
 
-
-def tobins_q_alternative(market_cap: float, total_debt: float, total_assets: float) -> float:
+def tobins_q_alternative(market_capitalization: float, total_borrowings: float, total_assets: float) -> float:
     """
     Tobin's Q Ratio - Alternative Formula
     Formula: (Market Cap + Total Debt) / Total Assets
     """
-    return (market_cap + total_debt) / total_assets
+    return (market_capitalization + total_borrowings) / total_assets
 
-
-def earnings_quality_ratio(operating_cash_flow: float, net_income: float) -> float:
+def earnings_quality_ratio(operating_cash_flow: float, profit_for_the_year: float) -> float:
     """
     Earnings Quality Ratio
     Formula: Operating Cash Flow / Net Income
@@ -191,18 +175,16 @@ def earnings_quality_ratio(operating_cash_flow: float, net_income: float) -> flo
     > 1.0 = High quality earnings
     < 1.0 = Lower quality earnings
     """
-    return operating_cash_flow / net_income
+    return operating_cash_flow / profit_for_the_year
 
-
-def accruals_ratio(net_income: float, operating_cash_flow: float, total_assets: float) -> float:
+def accruals_ratio(profit_for_the_year: float, operating_cash_flow: float, total_assets: float) -> float:
     """
     Accruals Ratio
     Formula: (Net Income - Operating Cash Flow) / Total Assets
     
     High accruals may indicate earnings manipulation
     """
-    return (net_income - operating_cash_flow) / total_assets
-
+    return (profit_for_the_year - operating_cash_flow) / total_assets
 
 def ev_to_revenue(enterprise_value: float, total_revenue: float) -> float:
     """
@@ -211,10 +193,9 @@ def ev_to_revenue(enterprise_value: float, total_revenue: float) -> float:
     """
     return enterprise_value / total_revenue
 
-
-def ev_to_operating_income(enterprise_value: float, operating_income: float) -> float:
+def ev_to_operating_income(enterprise_value: float, operating_profit: float) -> float:
     """
     EV-to-Operating Income
     Formula: Enterprise Value / Operating Income
     """
-    return enterprise_value / operating_income
+    return enterprise_value / operating_profit
