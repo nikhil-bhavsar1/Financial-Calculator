@@ -1,8 +1,9 @@
 
 import re
 import logging
-from typing import List, Tuple, Optional, Any
+from typing import List, Tuple, Optional, Any, Dict, Set
 from enum import Enum
+from dataclasses import dataclass, field
 
 from parser_config import (
     ParserConfig, ReportingEntity, ExtractedTable, clean_text,
@@ -10,8 +11,127 @@ from parser_config import (
 )
 from parser_financial_stmt_detection import FinancialStatementDetector
 from parser_ocr import OCRProcessor
+from indian_finance_utils import IndianNumberParser
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Enhanced Table Cell with Metadata (Docling-style)
+# =============================================================================
+
+@dataclass
+class EnhancedTableCell:
+    """Enhanced table cell with metadata for better parsing"""
+    text: str
+    normalized_text: str
+    row: int
+    col: int
+    is_header: bool = False
+    is_numeric: bool = False
+    is_negative: bool = False
+    numeric_value: Optional[float] = None
+    colspan: int = 1
+    rowspan: int = 1
+    confidence: float = 1.0
+    financial_category: Optional[str] = None  # 'assets', 'liabilities', 'equity', 'income', 'expenses'
+    
+    def __post_init__(self):
+        if not self.normalized_text:
+            self.normalized_text = self._normalize_text(self.text)
+        self._detect_numeric()
+        self._detect_financial_category()
+    
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Normalize text: lowercase, clean whitespace"""
+        if not text:
+            return ""
+        text = text.lower()
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+    
+    def _detect_numeric(self):
+        """Detect if cell contains numeric value using Indian formats"""
+        parser = IndianNumberParser()
+        val = parser.parse_indian_formatted_number(self.text)
+        
+        # Check explicit None or 0 with care (parser returns 0.0 for invalid)
+        # But parser returns 0.0 for empty/invalid.
+        # We only want to enable is_numeric if it successfully parsed.
+        # But wait, 0.0 IS numeric.
+        # Check text if it has digits.
+        has_digits = bool(re.search(r'\d', self.text))
+        
+        if not has_digits:
+             return
+
+        if val is not None: # parse_indian returns float or None (in User provided code? No, user provided code returns 0.0 for invalid? Check user code again)
+            # User Code: 
+            # if not number_str ... return 0.0
+            # try: float(clean) catch: return None
+            # So valid 0.0 is possible. Invalid is 0.0 or None depending on path.
+            # safe way: use parse_mixed if simple fails?
+            pass
+            
+        # Simplified robust logic:
+        # 1. Try format
+        val = parser.parse_indian_formatted_number(self.text)
+        if val is not None:
+             self.numeric_value = val
+             self.is_numeric = True
+             self.is_negative = val < 0
+        elif has_digits:
+             # Fallback
+             val_mixed = parser.parse_mixed_indian_us_format(self.text)
+             self.numeric_value = val_mixed
+             self.is_numeric = True
+             self.is_negative = val_mixed < 0
+    
+    def _detect_financial_category(self):
+        """Detect financial category from text"""
+        text_lower = self.normalized_text
+        
+        categories = {
+            'assets': ['assets', 'asset', 'ppe', 'inventory', 'inventories', 'receivables', 
+                      'cash', 'investments', 'property', 'equipment', 'goodwill', 'intangible',
+                      'fixed', 'current assets', 'non-current'],
+            'liabilities': ['liabilities', 'liability', 'borrowings', 'payables', 'debt', 
+                           'loans', 'provisions', 'creditors', 'dues', 'current liabilities',
+                           'non-current liabilities', 'long term', 'short term'],
+            'equity': ['equity', 'capital', 'share', 'reserves', 'retained', 'earnings', 
+                      'surplus', 'warrants', 'shareholders', 'owners'],
+            'income': ['revenue', 'sales', 'income', 'turnover', 'gross', 'net', 'profit', 
+                      'loss', 'earnings', 'ebitda', 'ebit', 'operating', 'total income'],
+            'expenses': ['expenses', 'expense', 'cost', 'cogs', 'overhead', 'administrative', 
+                        'selling', 'finance', 'depreciation', 'amortization', 'tax'],
+        }
+        
+        for category, keywords in categories.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    self.financial_category = category
+                    return
+
+
+# =============================================================================
+# Financial Keywords for Detection
+# =============================================================================
+
+FINANCIAL_KEYWORDS = {
+    'assets': ['assets', 'asset', 'ppe', 'inventory', 'inventories', 'receivables', 
+               'cash', 'investments', 'property', 'equipment', 'goodwill', 'intangible',
+               'fixed', 'current assets', 'non-current', 'cwip', 'work in progress'],
+    'liabilities': ['liabilities', 'liability', 'borrowings', 'payables', 'debt', 
+                   'loans', 'provisions', 'creditors', 'dues', 'current liabilities',
+                   'non-current liabilities', 'long term', 'short term'],
+    'equity': ['equity', 'capital', 'share', 'reserves', 'retained', 'earnings', 
+              'surplus', 'warrants', 'shareholders', 'owners', 'funds'],
+    'income': ['revenue', 'sales', 'income', 'turnover', 'gross', 'net', 'profit', 
+              'loss', 'earnings', 'ebitda', 'ebit', 'operating', 'total income'],
+    'expenses': ['expenses', 'expense', 'cost', 'cogs', 'overhead', 'administrative', 
+                'selling', 'finance', 'depreciation', 'amortization', 'tax', 'interest'],
+}
 
 # =============================================================================
 # Table Extraction
@@ -196,37 +316,82 @@ class TableExtractor:
         return tables
     
     def _find_table_regions(self, lines: List[str]) -> List[Tuple[int, int]]:
-        """Find regions that likely contain tables."""
+        """Find regions that likely contain tables - Enhanced for better capture."""
         regions = []
         in_table = False
         table_start = 0
         consecutive_data_lines = 0
+        potential_table_lines = 0
+        
+        # Enhanced patterns for table detection
+        number_patterns = [
+            r'[\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?',  # Standard format
+            r'\d{1,3}(?:,\d{2,3})+(?:\.\d+)?',  # Indian format
+        ]
+        
+        # Financial term indicators that suggest table content
+        financial_indicators = [
+            r'\b(?:assets?|liabilities?|equity|income|expenses?|revenue|profit|loss|sales|cost)\b',
+            r'\b(?:total|sub-?total|net|gross)\s+\w+',
+            r'\b(?:cash|bank|investments?|receivables?|payables?|inventory|stock)\b',
+            r'\b(?:borrowings?|debt|loans?|advances?|deposits?)\b',
+            r'\b(?:share|capital|reserves?|retained|earnings?)\b',
+        ]
         
         for i, line in enumerate(lines):
-            has_numbers = bool(re.search(self.INDIAN_NUMBER_PATTERN, line))
-            has_text = bool(re.search(r'[a-zA-Z]{3,}', line))
-            line_length = len(line.strip())
+            line_stripped = line.strip()
+            line_lower = line.lower()
+            line_length = len(line_stripped)
+            
+            # Check for numbers using multiple patterns
+            has_numbers = any(re.search(pattern, line) for pattern in number_patterns)
+            
+            # Check for text - more relaxed (2+ chars instead of 3+)
+            has_text = bool(re.search(r'[a-zA-Z]{2,}', line))
+            
+            # Check for financial indicators
+            has_financial_terms = any(re.search(pattern, line_lower) for pattern in financial_indicators)
             
             # Line looks like table data if it has both text and numbers
-            is_data_line = has_numbers and has_text and line_length > 10
+            # OR if it has financial terms and numbers
+            # OR if it's a short line with numbers (could be a subtotal/total)
+            is_data_line = (has_numbers and has_text and line_length > 5) or \
+                          (has_numbers and has_financial_terms) or \
+                          (has_numbers and line_length < 50 and has_text)
             
             if is_data_line:
                 if not in_table:
-                    # Start new table region, include a few lines before
-                    table_start = max(0, i - 3)
+                    # Start new table region, include more context lines before
+                    table_start = max(0, i - 5)  # Increased from 3
                     in_table = True
+                    potential_table_lines = 0
                 consecutive_data_lines += 1
+                potential_table_lines = 0
             else:
-                if in_table:
-                    # Check if we had enough data lines
-                    if consecutive_data_lines >= 3:
-                        regions.append((table_start, i))
-                    in_table = False
-                    consecutive_data_lines = 0
+                # Check if this could be a header or separator line
+                is_header_line = any(re.search(pattern, line_lower) for pattern in [
+                    r'particulars', r'description', r'notes?', r'year\s*ended',
+                    r'as\s+(?:at|of)', r'\d{4}'
+                ])
+                
+                if is_header_line and in_table:
+                    # Continue table, this is likely a header
+                    consecutive_data_lines += 1
+                    potential_table_lines = 0
+                elif in_table:
+                    potential_table_lines += 1
+                    # Allow up to 2 non-data lines within a table (for spacing, headers)
+                    if potential_table_lines > 2:
+                        # Check if we had enough data lines - lowered from 3 to 2
+                        if consecutive_data_lines >= 2:
+                            regions.append((table_start, i - potential_table_lines + 1))
+                        in_table = False
+                        consecutive_data_lines = 0
+                        potential_table_lines = 0
         
-        # Don't forget trailing table
-        if in_table and consecutive_data_lines >= 3:
-            regions.append((table_start, len(lines)))
+        # Don't forget trailing table - lowered threshold from 3 to 2
+        if in_table and consecutive_data_lines >= 2:
+            regions.append((table_start, len(lines) - potential_table_lines))
         
         return regions
     
@@ -397,3 +562,173 @@ class TableExtractor:
             logger.debug(f"OCR table extraction failed: {e}")
         
         return tables
+    
+    # =============================================================================
+    # Enhanced Extraction Methods (Docling-style)
+    # =============================================================================
+    
+    # =============================================================================
+    # Enhanced Extraction Methods (Graph Reconstruction)
+    # =============================================================================
+    
+    def extract_with_enhanced_metadata(
+        self,
+        page,
+        page_num: int,
+        reporting_entity: ReportingEntity = ReportingEntity.UNKNOWN
+    ) -> Tuple[List[ExtractedTable], List[Any]]:
+        """
+        Extract tables and rebuild them as semantic graphs.
+        
+        Returns:
+            Tuple of (tables, financial_graphs)
+        """
+        # Lazy import to avoid circular dep at module level if any
+        from table_graph_builder import TableGraphBuilder, FinancialTableGraph
+        
+        tables = self.extract_from_page(page, page_num, reporting_entity)
+        graphs = []
+        
+        builder = TableGraphBuilder()
+        
+        for table in tables:
+            # Reconstruct Graph (Gap 1 & 2)
+            graph = builder.build_graph(table)
+            graphs.append(graph)
+            
+        return tables, graphs
+
+    
+    def detect_table_structure(
+        self,
+        lines: List[str],
+        page_num: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Detect table structure with detailed analysis.
+        
+        Returns:
+            Dictionary with table structure info or None
+        """
+        regions = self._find_table_regions(lines)
+        
+        if not regions:
+            return None
+        
+        structures = []
+        for start_idx, end_idx in regions:
+            table_lines = lines[start_idx:end_idx]
+            headers, rows = self._parse_table_lines(table_lines)
+            
+            # Analyze structure
+            structure = {
+                'page': page_num,
+                'start_line': start_idx,
+                'end_line': end_idx,
+                'headers': headers,
+                'row_count': len(rows),
+                'col_count': len(headers) if headers else (len(rows[0]) if rows else 0),
+                'has_year_headers': any(re.search(r'20\d{2}|19\d{2}', h) for h in headers),
+                'has_particulars': any('particulars' in h.lower() or 'description' in h.lower() for h in headers),
+                'financial_categories': self._detect_categories_in_rows(rows),
+                'confidence': self._calculate_structure_confidence(headers, rows)
+            }
+            structures.append(structure)
+        
+        return structures[0] if structures else None
+    
+    def _detect_categories_in_rows(self, rows: List[List[str]]) -> Set[str]:
+        """Detect financial categories present in table rows"""
+        categories = set()
+        
+        for row in rows:
+            if not row:
+                continue
+            label = row[0] if row else ""
+            label_lower = label.lower()
+            
+            for category, keywords in FINANCIAL_KEYWORDS.items():
+                for keyword in keywords:
+                    if keyword in label_lower:
+                        categories.add(category)
+                        break
+        
+        return categories
+    
+    def _calculate_structure_confidence(
+        self,
+        headers: List[str],
+        rows: List[List[str]]
+    ) -> float:
+        """Calculate confidence score for table structure"""
+        if not rows:
+            return 0.0
+        
+        scores = []
+        
+        # Check header quality
+        if headers:
+            has_particulars = any('particulars' in h.lower() or 'description' in h.lower() for h in headers)
+            has_years = any(re.search(r'20\d{2}|19\d{2}', h) for h in headers)
+            if has_particulars and has_years:
+                scores.append(1.0)
+            elif has_particulars or has_years:
+                scores.append(0.7)
+            else:
+                scores.append(0.4)
+        
+        # Check row consistency
+        col_counts = [len(row) for row in rows]
+        if col_counts:
+            avg_cols = sum(col_counts) / len(col_counts)
+            consistency = 1.0 - (max(col_counts) - min(col_counts)) / max(col_counts) if max(col_counts) > 0 else 0
+            scores.append(consistency)
+        
+        # Check for financial keywords
+        financial_rows = 0
+        for row in rows:
+            if not row:
+                continue
+            label = row[0] if row else ""
+            for keywords in FINANCIAL_KEYWORDS.values():
+                if any(kw in label.lower() for kw in keywords):
+                    financial_rows += 1
+                    break
+        
+        if rows:
+            financial_ratio = financial_rows / len(rows)
+            scores.append(financial_ratio)
+        
+        return sum(scores) / len(scores) if scores else 0.5
+    
+    def normalize_table_content(self, table: ExtractedTable) -> ExtractedTable:
+        """
+        Normalize table content: lowercase headers and cells, clean whitespace.
+        """
+        # Normalize headers
+        table.headers = [
+            self._normalize_cell_text(h) for h in table.headers
+        ]
+        
+        # Normalize rows
+        normalized_rows = []
+        for row in table.rows:
+            normalized_row = [
+                self._normalize_cell_text(cell) for cell in row
+            ]
+            normalized_rows.append(normalized_row)
+        
+        table.rows = normalized_rows
+        return table
+    
+    def _normalize_cell_text(self, text: str) -> str:
+        """Normalize cell text: lowercase and clean whitespace"""
+        if not text:
+            return ""
+        # Convert to lowercase
+        text = text.lower()
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        # Strip
+        text = text.strip()
+        return text

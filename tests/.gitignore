@@ -1,0 +1,11 @@
+# Ignore test output logs
+*.txt
+output.txt
+output_v*.txt
+graph_output.txt
+test_output.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class

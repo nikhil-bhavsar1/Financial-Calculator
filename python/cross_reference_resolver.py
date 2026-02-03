@@ -115,8 +115,17 @@ class CrossReferenceResolver:
                     )
                     references.append(ref)
         
-        self.references = references
-        return references
+        # Deduplicate references (same type, number, and line)
+        seen = set()
+        deduplicated = []
+        for ref in references:
+            key = (ref.ref_type, ref.ref_number, ref.source_line)
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(ref)
+        
+        self.references = deduplicated
+        return deduplicated
     
     def extract_note_sections(self, lines: List[str]) -> Dict[str, NoteSection]:
         """

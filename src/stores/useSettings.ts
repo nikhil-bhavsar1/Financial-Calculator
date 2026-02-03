@@ -25,7 +25,9 @@ export const useSettings = create<SettingsState>((set, get) => ({
             groq: '',
             openai: '',
             openrouter: '',
-            opencode: ''
+            opencode: '',
+            cerebras: '',
+            nvidia: ''
         },
         modelName: '',
         llm: {
@@ -43,6 +45,15 @@ export const useSettings = create<SettingsState>((set, get) => ({
         supabaseConfig: {
             url: '',
             key: ''
+        },
+        financialDataApis: {
+            alphaVantage: '',
+            twelveData: '',
+            fyersAppId: '',
+            fyersAccessToken: '',
+            angelOneApiKey: '',
+            angelOneClientCode: '',
+            angelOnePassword: ''
         }
     },
     loading: true,

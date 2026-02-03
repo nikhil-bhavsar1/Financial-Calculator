@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { Upload, X, FileText, File, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, X, FileText, File, Loader2, CheckCircle, AlertCircle, FolderOpen } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { readFile } from '@tauri-apps/plugin-fs';
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -19,7 +20,43 @@ export const UploadModal: React.FC<UploadModalProps> = ({ isOpen, onClose, onUpl
   if (!isOpen) return null;
 
   const handleNativeFileSelect = async () => {
-    fileInputRef.current?.click();
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{
+          name: 'Documents',
+          extensions: ['pdf', 'txt', 'csv', 'xbrl', 'xml', 'xlsx', 'md']
+        }]
+      });
+      
+      if (selected && selected.length > 0) {
+        const files = await Promise.all(
+          selected.map(async (filePath) => {
+            const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+            const ext = fileName.split('.').pop()?.toLowerCase() || '';
+            
+            // Read file as base64 for processing
+            const fileData = await readFile(filePath);
+            const base64Content = btoa(
+              new Uint8Array(fileData).reduce((data, byte) => data + String.fromCharCode(byte), '')
+            );
+            
+            return {
+              name: fileName,
+              path: filePath, // Full file system path for Tauri asset protocol
+              type: ext,
+              content: base64Content
+            };
+          })
+        );
+        
+        setSelectedFiles(prev => [...prev, ...files]);
+        setError(null);
+      }
+    } catch (e) {
+      console.error('File selection error:', e);
+      setError('Failed to select files. Please try again.');
+    }
   };
 
   const processFiles = (fileList: FileList | File[]) => {

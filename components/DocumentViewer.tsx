@@ -24,7 +24,8 @@ interface DocumentViewerProps {
     showToolbar?: boolean;
     fileUrl?: string;
     fileType?: 'pdf' | 'image' | 'text';
-    highlightLocation?: { page: number, text: string } | null;
+    highlightLocation?: { page: number, text: string, rawLine?: string } | null;
+    onPageChange?: (page: number) => void;
 }
 
 import { Document, Page as PdfPage, pdfjs } from 'react-pdf';
@@ -54,7 +55,7 @@ interface ParsedTable {
     alignments: ('left' | 'center' | 'right')[];
 }
 
-type ViewMode = 'preview' | 'edit' | 'split' | 'file';
+type ViewMode = 'preview' | 'edit' | 'split' | 'file' | 'pdf';
 
 // ============================================================================
 // MARKDOWN PARSER
@@ -568,19 +569,23 @@ const markdownStyles = `
     /* Table Styles */
     .markdown-content .md-table-wrapper {
         margin: 1.5em 0;
-        overflow-x: auto;
+        overflow: auto; /* Allow both X and Y scrolling */
+        max-height: 70vh; /* Limit height to keep scrollbars visible */
         border-radius: 12px;
         border: 1px solid var(--border-default, #e5e7eb);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        position: relative;
     }
 
     .markdown-content .md-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate; /* Required for sticky borders to work nicely */
+        border-spacing: 0;
         font-size: 0.9em;
     }
 
     .markdown-content .md-table th {
+        background: var(--bg-elevated, #f9fafb); /* Fallback */
         background: linear-gradient(180deg, var(--bg-elevated, #f9fafb) 0%, var(--bg-subtle, #f3f4f6) 100%);
         font-weight: 600;
         text-transform: uppercase;
@@ -590,6 +595,9 @@ const markdownStyles = `
         padding: 1em 1.25em;
         border-bottom: 2px solid var(--border-default, #e5e7eb);
         white-space: nowrap;
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }
 
     .markdown-content .md-table td {
@@ -597,6 +605,7 @@ const markdownStyles = `
         border-bottom: 1px solid var(--border-weak, #f3f4f6);
         color: var(--text-primary, #1f2937);
         vertical-align: top;
+        background-color: inherit; /* Ensure row background applies */
     }
 
     .markdown-content .md-table tbody tr {
@@ -677,6 +686,7 @@ interface MarkdownRendererProps {
     content: string;
     className?: string;
     searchQuery?: string;
+    rawLine?: string;
     onCopyCode?: (code: string) => void;
 }
 
@@ -684,6 +694,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     content,
     className = '',
     searchQuery = '',
+    rawLine = '',
     onCopyCode
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -703,15 +714,26 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         return () => clearTimeout(timer);
     }, [content]);
 
-    // Highlight search results
+    // Simple search highlighting - just wrap all matches
     const highlightedHtml = useMemo(() => {
-        if (!searchQuery.trim()) return parsedData.html;
+        let html = parsedData.html;
 
-        const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedQuery})`, 'gi');
+        // Highlight raw line if provided
+        if (rawLine && rawLine.trim()) {
+            const escapedRawLine = rawLine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const textRegex = new RegExp(`(${escapedRawLine})`, 'gi');
+            html = html.replace(textRegex, '<span class="source-line-highlight">$1</span>');
+        }
 
-        return parsedData.html.replace(regex, '<mark class="search-highlight">$1</mark>');
-    }, [parsedData.html, searchQuery]);
+        // Apply search query highlighting
+        if (searchQuery.trim()) {
+            const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedQuery})(?![^<]*>|[^<>]*</span>)`, 'gi');
+            html = html.replace(regex, '<mark class="search-highlight">$1</mark>');
+        }
+
+        return html;
+    }, [parsedData.html, searchQuery, rawLine]);
 
     // Handle copy button clicks
     useEffect(() => {
@@ -747,10 +769,78 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     background: #fef08a;
                     padding: 0.1em 0.2em;
                     border-radius: 2px;
+                    transition: all 0.2s ease;
                 }
                 .dark .search-highlight {
                     background: #ca8a04;
                     color: #1f2937;
+                }
+                /* Current search result - more prominent */
+                .search-highlight-current {
+                    background: #f59e0b !important;
+                    color: #1f2937 !important;
+                    padding: 0.15em 0.3em !important;
+                    border-radius: 4px !important;
+                    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4), 0 4px 12px rgba(245, 158, 11, 0.3) !important;
+                    font-weight: 600 !important;
+                    animation: search-current-pulse 2s ease-in-out;
+                }
+                .dark .search-highlight-current {
+                    background: #fbbf24 !important;
+                    color: #1f2937 !important;
+                    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.5), 0 4px 12px rgba(251, 191, 36, 0.4) !important;
+                }
+                @keyframes search-current-pulse {
+                    0%, 100% { 
+                        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.4), 0 4px 12px rgba(245, 158, 11, 0.3);
+                        transform: scale(1);
+                    }
+                    50% { 
+                        box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.6), 0 6px 20px rgba(245, 158, 11, 0.5);
+                        transform: scale(1.02);
+                    }
+                }
+                /* Table row highlighting - precise line selection */
+                tr.source-line-highlight {
+                    background: linear-gradient(90deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.15) 100%) !important;
+                    border-left: 3px solid #6366f1;
+                    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.3);
+                    animation: source-highlight-pulse 2s ease-in-out;
+                }
+                tr.source-line-highlight td {
+                    background: transparent !important;
+                }
+                .dark tr.source-line-highlight {
+                    background: linear-gradient(90deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.2) 100%) !important;
+                    border-left-color: #818cf8;
+                    box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.4);
+                }
+                
+                /* Inline text highlighting for non-table content */
+                .source-line-highlight-inline {
+                    background: linear-gradient(90deg, rgba(99, 102, 241, 0.25) 0%, rgba(139, 92, 246, 0.15) 100%);
+                    border-bottom: 2px solid #6366f1;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    box-shadow: 0 1px 3px rgba(99, 102, 241, 0.2);
+                    animation: source-highlight-pulse-inline 2s ease-in-out;
+                    font-weight: 500;
+                }
+                .dark .source-line-highlight-inline {
+                    background: linear-gradient(90deg, rgba(99, 102, 241, 0.35) 0%, rgba(139, 92, 246, 0.25) 100%);
+                    border-bottom-color: #818cf8;
+                    box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
+                }
+                
+                @keyframes source-highlight-pulse {
+                    0% { box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.3); }
+                    50% { box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.5); }
+                    100% { box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.3); }
+                }
+                @keyframes source-highlight-pulse-inline {
+                    0% { box-shadow: 0 1px 3px rgba(99, 102, 241, 0.2); }
+                    50% { box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4); }
+                    100% { box-shadow: 0 1px 3px rgba(99, 102, 241, 0.2); }
                 }
             `}</style>
             <div
@@ -964,7 +1054,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     showToolbar = true,
     fileUrl,
     fileType = 'text',
-    highlightLocation
+    highlightLocation,
+    onPageChange
 }) => {
     // ... state
     const [pages, setPages] = useState<Page[]>([]);
@@ -972,10 +1063,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [showSearch, setShowSearch] = useState(false);
-    const [searchResults, setSearchResults] = useState<{ page: number; index: number }[]>([]);
+    const [searchResults, setSearchResults] = useState<{ page: number; index: number; id: number }[]>([]);
     const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+    const [highlightRawLine, setHighlightRawLine] = useState<string>('');
     const [fontSize, setFontSize] = useState(16);
-    const [zoomLevel, setZoomLevel] = useState(100); // Added zoomLevel state
+    const [zoomLevel, setZoomLevel] = useState(200); // Added zoomLevel state (Default 200%)
     const [showThumbnails, setShowThumbnails] = useState(false);
     const [showOutline, setShowOutline] = useState(false);
     const [bookmarks, setBookmarks] = useState<number[]>([]);
@@ -983,6 +1075,15 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     const [numPdfPages, setNumPdfPages] = useState<number | null>(null);
     const [isPdfLoaded, setIsPdfLoaded] = useState(false);
     const [pdfError, setPdfError] = useState<string | null>(null);
+    const [inputPage, setInputPage] = useState(initialPage.toString());
+
+    // Sync inputPage when currentPage changes externaly
+    useEffect(() => {
+        setInputPage(currentPage.toString());
+        if (onPageChange) {
+            onPageChange(currentPage);
+        }
+    }, [currentPage, onPageChange]);
 
     // Handle highlight location request
     useEffect(() => {
@@ -991,8 +1092,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             // (PDF text layer search isn't fully implemented yet)
             setViewMode('preview');
 
-            // Set search query
-            setSearchQuery(highlightLocation.text);
+            // Use rawLine for more precise matching if available
+            const searchText = highlightLocation.rawLine || highlightLocation.text;
+            setSearchQuery(searchText);
+            setHighlightRawLine(highlightLocation.rawLine || '');
             setShowSearch(true);
 
             // Navigate to page
@@ -1003,9 +1106,15 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 if (highlightLocation.page !== currentPage) {
                     setCurrentPage(highlightLocation.page);
                 }
-                // Try to find index on this page?
-                // The search effect below will auto-populate searchResults.
-                // We just need to ensure the viewer jumps to the right spot.
+
+                // Scroll to the highlighted element after a short delay
+                setTimeout(() => {
+                    // Look for both table row highlights and inline text highlights
+                    const highlightedElement = document.querySelector('.source-line-highlight, .source-line-highlight-inline');
+                    if (highlightedElement) {
+                        highlightedElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 300);
             }, 100);
         }
     }, [highlightLocation]);
@@ -1034,6 +1143,49 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     const [hasChanges, setHasChanges] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Scroll Navigation Logic
+    // Unified Wheel Handler: Zoom (Ctrl) + Page Navigation (Scroll Bounds)
+    const lastScrollTime = useRef(0);
+    const handleWheelNavigation = (e: React.WheelEvent<HTMLDivElement>) => {
+        // 1. Handle Zoom (Ctrl + Wheel)
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (e.deltaY < 0) {
+                zoomIn();
+            } else {
+                zoomOut();
+            }
+            return;
+        }
+
+        // 2. Handle Page Navigation (Boundary Hit)
+        // DISABLED by user request: "remove scroll to next page when end of page function"
+        /*
+        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+        const now = Date.now();
+        
+        // Cooldown check (500ms)
+        if (now - lastScrollTime.current < 500) return;
+
+        // Bottom Hit + Scroll Down -> Next Page
+        // Use a small threshold (10px) to ensure reliability
+        if (e.deltaY > 0 && scrollTop + clientHeight >= scrollHeight - 10) {
+            if (currentPage < (numPdfPages || pages.length)) {
+                lastScrollTime.current = now;
+                nextPage();
+            }
+        }
+        
+        // Top Hit + Scroll Up -> Previous Page
+        else if (e.deltaY < 0 && scrollTop <= 0) {
+            if (currentPage > 1) {
+                lastScrollTime.current = now;
+                prevPage();
+            }
+        }
+        */
+    };
 
     // Helper for copy code
     const handleCopyCode = (code: string) => {
@@ -1150,14 +1302,15 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             return;
         }
 
-        const results: { page: number; index: number }[] = [];
+        const results: { page: number; index: number; id: number }[] = [];
         const query = searchQuery.toLowerCase();
 
         pages.forEach(page => {
             let searchContent = page.content.toLowerCase();
             let pos = searchContent.indexOf(query);
+            let matchId = 0;
             while (pos !== -1) {
-                results.push({ page: page.number, index: pos });
+                results.push({ page: page.number, index: pos, id: matchId++ });
                 pos = searchContent.indexOf(query, pos + 1);
             }
         });
@@ -1171,6 +1324,66 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             }
         }
     }, [searchQuery, pages, currentPage]);
+
+    // Scroll to current search result when it changes
+    useEffect(() => {
+        if (searchResults.length === 0 || !searchQuery.trim()) return;
+
+        const timer = setTimeout(() => {
+            const currentResult = searchResults[currentSearchIndex];
+            if (!currentResult) return;
+
+            // First, ensure we're on the right page
+            if (currentResult.page !== currentPage) {
+                setCurrentPage(currentResult.page);
+                return; // The effect will re-run after page change
+            }
+
+            // Find the content container
+            const contentContainer = previewRef.current || document.querySelector('.markdown-content');
+            if (!contentContainer) return;
+
+            // Get all mark elements on the current page
+            const allMarks = document.querySelectorAll('mark.search-highlight');
+
+            // Filter marks that are in the current page's content
+            const marksInContainer = Array.from(allMarks).filter(mark =>
+                contentContainer.contains(mark)
+            );
+
+            if (marksInContainer.length === 0) return;
+
+            // Find the target mark based on the match position
+            // We use the match index to find the right one
+            let targetMark: Element | null = null;
+
+            // Count how many matches from previous pages
+            const matchesOnPreviousPages = searchResults.filter(
+                r => r.id < currentSearchIndex && r.page !== currentPage
+            ).length;
+
+            // The index within current page
+            const localIndex = currentSearchIndex - matchesOnPreviousPages;
+
+            if (localIndex >= 0 && localIndex < marksInContainer.length) {
+                targetMark = marksInContainer[localIndex];
+            } else {
+                // Fallback: use first available mark
+                targetMark = marksInContainer[0];
+            }
+
+            if (targetMark) {
+                // Remove current class from all marks
+                allMarks.forEach(mark => mark.classList.remove('search-highlight-current'));
+
+                // Scroll and highlight the target
+                targetMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                targetMark.classList.add('search-highlight-current');
+            }
+        }, 200);
+
+        return () => clearTimeout(timer);
+    }, [currentSearchIndex, searchResults, searchQuery, currentPage]);
 
     // Keyboard navigation
     useEffect(() => {
@@ -1276,9 +1489,34 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     const goToLastPage = () => pages.length > 0 && setCurrentPage(pages[pages.length - 1].number);
     const goToPage = (pageNum: number) => pages.some(p => p.number === pageNum) && setCurrentPage(pageNum);
 
-    const zoomIn = () => setFontSize(Math.min(32, fontSize + 2));
-    const zoomOut = () => setFontSize(Math.max(10, fontSize - 2));
-    const resetZoom = () => setFontSize(16);
+    const [rotation, setRotation] = useState(0);
+
+    const zoomIn = () => {
+        if (viewMode === 'pdf') {
+            setZoomLevel(prev => Math.min(300, prev + 25));
+        } else {
+            setFontSize(Math.min(32, fontSize + 2));
+        }
+    };
+
+    const zoomOut = () => {
+        if (viewMode === 'pdf') {
+            setZoomLevel(prev => Math.max(25, prev - 25));
+        } else {
+            setFontSize(Math.max(10, fontSize - 2));
+        }
+    };
+
+    const resetZoom = () => {
+        if (viewMode === 'pdf') {
+            setZoomLevel(100);
+            setRotation(0);
+        } else {
+            setFontSize(16);
+        }
+    };
+
+    const rotateRight = () => setRotation(r => (r + 90) % 360);
 
     const jumpToSearch = (direction: 'next' | 'prev') => {
         if (searchResults.length === 0) return;
@@ -1292,6 +1530,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         if (result.page !== currentPage) {
             setCurrentPage(result.page);
         }
+        // The scroll effect will be triggered by the useEffect watching currentSearchIndex
     };
 
     const toggleBookmark = () => {
@@ -1299,6 +1538,25 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             setBookmarks(bookmarks.filter(b => b !== currentPage));
         } else {
             setBookmarks([...bookmarks, currentPage].sort((a, b) => a - b));
+        }
+    };
+
+    const jumpToBookmark = (direction: 'next' | 'prev') => {
+        if (bookmarks.length === 0) return;
+
+        let nextCalcPage = currentPage;
+        if (direction === 'next') {
+            // Find first bookmark > currentPage
+            const next = bookmarks.find(b => b > currentPage);
+            nextCalcPage = next || bookmarks[0]; // Wrap to first
+        } else {
+            // Find first bookmark < currentPage (reverse search)
+            const prev = [...bookmarks].reverse().find(b => b < currentPage);
+            nextCalcPage = prev || bookmarks[bookmarks.length - 1]; // Wrap to last
+        }
+
+        if (nextCalcPage && nextCalcPage !== currentPage) {
+            setCurrentPage(nextCalcPage);
         }
     };
 
@@ -1368,13 +1626,20 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
                                 <div className="flex items-center gap-2 bg-[var(--bg-surface)] px-3 py-1.5 rounded-lg border border-[var(--border-default)] mx-1">
                                     <input
-                                        type="number"
-                                        value={currentPage}
-                                        min={1}
-                                        max={maxPage}
-                                        onChange={(e) => {
-                                            const val = parseInt(e.target.value);
-                                            if (!isNaN(val)) goToPage(val);
+                                        type="text"
+                                        value={inputPage}
+                                        onChange={(e) => setInputPage(e.target.value)}
+                                        onBlur={() => {
+                                            let val = parseInt(inputPage);
+                                            if (isNaN(val) || val < 1) val = 1;
+                                            if (val > maxPage) val = maxPage;
+                                            goToPage(val);
+                                            setInputPage(val.toString());
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.currentTarget.blur();
+                                            }
                                         }}
                                         className="w-10 bg-transparent text-center font-mono text-primary text-sm focus:outline-none"
                                     />
@@ -1488,10 +1753,19 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
                         {/* Zoom */}
                         <button onClick={zoomOut} className="btn-icon" title="Zoom Out"><ZoomOut className="w-4 h-4" /></button>
-                        <button onClick={resetZoom} className="px-2 py-1 text-xs text-tertiary hover:text-primary rounded font-mono" title="Reset Zoom">
-                            {Math.round((fontSize / 16) * 100)}%
+                        <button onClick={resetZoom} className="px-2 py-1 text-xs text-tertiary hover:text-primary rounded font-mono min-w-[3rem]" title="Reset Zoom">
+                            {viewMode === 'pdf' ? `${zoomLevel}%` : `${Math.round((fontSize / 16) * 100)}%`}
                         </button>
                         <button onClick={zoomIn} className="btn-icon" title="Zoom In"><ZoomIn className="w-4 h-4" /></button>
+
+                        {viewMode === 'pdf' && (
+                            <>
+                                <div className="w-px h-5 bg-[var(--border-default)] mx-1" />
+                                <button onClick={rotateRight} className="btn-icon" title="Rotate (90°)">
+                                    <RotateCcw className="w-4 h-4 transform -scale-x-100" />
+                                </button>
+                            </>
+                        )}
 
                         <div className="w-px h-5 bg-[var(--border-default)] mx-1" />
 
@@ -1500,9 +1774,20 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                             {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                         </button>
 
-                        <button onClick={toggleBookmark} className={`btn-icon ${isBookmarked ? 'text-yellow-500' : ''}`} title="Bookmark">
+                        <button onClick={toggleBookmark} className={`btn-icon ${isBookmarked ? 'text-yellow-500' : ''}`} title={isBookmarked ? "Remove Bookmark" : "Add Bookmark"}>
                             <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
                         </button>
+
+                        {bookmarks.length > 0 && (
+                            <div className="flex items-center gap-0.5 bg-[var(--bg-surface)] rounded-lg border border-[var(--border-default)] mx-1">
+                                <button onClick={() => jumpToBookmark('prev')} className="p-1 hover:text-primary text-tertiary transition-colors" title="Previous Bookmark">
+                                    <ChevronLeft className="w-3 h-3" />
+                                </button>
+                                <button onClick={() => jumpToBookmark('next')} className="p-1 hover:text-primary text-tertiary transition-colors" title="Next Bookmark">
+                                    <ChevronRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                        )}
 
                         {/* Save Button */}
                         {editable && onSave && (
@@ -1601,7 +1886,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
                     {/* PDF Full View Mode */}
                     {viewMode === 'pdf' && fileUrl ? (
-                        <div className="flex-1 bg-gray-100 dark:bg-slate-900 overflow-y-auto flex justify-center p-4 relative">
+                        <div
+                            className="flex-1 bg-gray-100 dark:bg-slate-900 overflow-y-auto flex justify-center p-4 relative"
+                            onWheel={handleWheelNavigation}
+                        >
                             {pdfError ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center p-8">
                                     <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
@@ -1622,7 +1910,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                                     <PdfPage
                                         pageNumber={currentPage}
                                         scale={zoomLevel / 100}
-                                        renderTextLayer={false}
+                                        rotate={rotation}
+                                        renderTextLayer={true}
                                         renderAnnotationLayer={false}
                                         className="shadow-lg mb-4"
                                     />
@@ -1656,6 +1945,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                                 className={`overflow-y-auto custom-scrollbar transition-all duration-300 ease-out ${viewMode === 'split' ? 'w-1/2' : 'flex-1'
                                     }`}
                                 style={{ willChange: 'width' }}
+                                onWheel={handleWheelNavigation}
                             >
                                 <div className="min-h-full flex items-start justify-center p-4 sm:p-8 lg:p-12">
                                     <div
@@ -1685,6 +1975,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                                             <MarkdownRenderer
                                                 content={viewMode === 'split' ? editedContent : activePageContent}
                                                 searchQuery={searchQuery}
+                                                rawLine={highlightRawLine}
                                                 className="prose prose-lg dark:prose-invert max-w-none"
                                             />
                                         </div>

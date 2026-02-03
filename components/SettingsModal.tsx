@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Moon, Sun, Zap, KeyRound, Database, Sparkles, CheckCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, Moon, Sun, Zap, KeyRound, Database, Sparkles, CheckCircle, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppSettings } from '../types';
 import { LLMSettingsPanel } from '../src/components/LLMSettingsPanel';
 
@@ -11,6 +11,8 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onUpdateSettings }) => {
+  const [isFinancialApisExpanded, setIsFinancialApisExpanded] = useState(false);
+
   if (!isOpen) return null;
 
   const handleThemeToggle = () => {
@@ -51,6 +53,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
     { id: 'groq', name: 'Groq', icon: '⚡', description: 'Ultra-fast responses' },
     { id: 'openai', name: 'OpenAI', icon: '🤖', description: 'GPT-4 powered' },
     { id: 'openrouter', name: 'OpenRouter', icon: '🌐', description: 'Multi-model access' },
+    { id: 'cerebras', name: 'Cerebras', icon: '🧠', description: 'CS-3 powered inference' },
+    { id: 'nvidia', name: 'NVIDIA NIM', icon: '🟢', description: 'Enterprise-grade NIM' },
     { id: 'local_llm', name: 'Local LLM', icon: '🏠', description: 'Private & Offline (Ollama)' },
   ];
 
@@ -260,7 +264,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                   </div>
                 )}
 
-                {settings.aiProvider !== 'groq' && settings.aiProvider !== 'gemini' && (
+                {settings.aiProvider === 'cerebras' && (
+                  <div className="mb-4 animate-fadeIn">
+                    <label className="text-xs text-tertiary mb-1.5 block">Select Cerebras Model</label>
+                    <select
+                      value={settings.modelName || 'llama-3.3-70b'}
+                      onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
+                      className="glass-input w-full appearance-none cursor-pointer"
+                    >
+                      <option value="llama-3.3-70b">Llama 3.3 70B</option>
+                      <option value="llama3.1-8b">Llama 3.1 8B</option>
+                      <option value="gpt-oss-120b">GPT OSS 120B</option>
+                      <option value="qwen-3-235b-a22b-instruct-2507">Qwen 3 235B Instruct</option>
+                      <option value="qwen-3-32b">Qwen 3 32B</option>
+                      <option value="zai-glm-4.7">Z.ai GLM 4.7</option>
+                    </select>
+                  </div>
+                )}
+
+                {settings.aiProvider === 'nvidia' && (
+                  <div className="mb-4 animate-fadeIn">
+                    <label className="text-xs text-tertiary mb-1.5 block">Select NVIDIA NIM Model</label>
+                    <select
+                      value={settings.modelName || 'meta/llama-3.1-405b-instruct'}
+                      onChange={(e) => onUpdateSettings({ ...settings, modelName: e.target.value })}
+                      className="glass-input w-full appearance-none cursor-pointer"
+                    >
+                      <option value="meta/llama-3.1-405b-instruct">Llama 3.1 405B Instruct (SOTA)</option>
+                      <option value="meta/llama-3.1-70b-instruct">Llama 3.1 70B Instruct</option>
+                      <option value="meta/llama-3.1-8b-instruct">Llama 3.1 8B Instruct</option>
+                      <option value="nvidia/llama-3.1-nemotron-70b-instruct">Nemotron 70B Instruct</option>
+                    </select>
+                  </div>
+                )}
+
+                {settings.aiProvider !== 'groq' && settings.aiProvider !== 'gemini' && settings.aiProvider !== 'cerebras' && settings.aiProvider !== 'nvidia' && (
                   <div>
                     <label className="text-xs text-tertiary mb-1.5 block">Model Name (Optional)</label>
                     <input
@@ -317,6 +355,184 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 />
               </div>
             </div>
+          </section>
+
+          {/* Financial Data APIs - Collapsible Section */}
+          <section className="animate-fadeIn stagger-3">
+            <div
+              onClick={() => setIsFinancialApisExpanded(!isFinancialApisExpanded)}
+              className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] cursor-pointer hover:border-[var(--border-strong)] transition-all mb-4"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                  <TrendingUp className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-primary">Financial Data APIs</p>
+                  <p className="text-xs text-tertiary">
+                    {isFinancialApisExpanded ? 'Click to collapse' : 'Configure stock market data providers'}
+                  </p>
+                </div>
+              </div>
+              <div className="text-tertiary">
+                {isFinancialApisExpanded ? (
+                  <ChevronUp className="w-5 h-5" />
+                ) : (
+                  <ChevronDown className="w-5 h-5" />
+                )}
+              </div>
+            </div>
+
+            {isFinancialApisExpanded && (
+              <div className="space-y-4 animate-fadeIn">
+                <p className="text-xs text-tertiary mb-4 px-1">
+                  Configure API keys for stock market data providers. These are optional - Yahoo Finance works without API keys.
+                </p>
+
+                {/* Alpha Vantage */}
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">📊</span>
+                    <span className="text-sm font-medium text-primary">Alpha Vantage</span>
+                    <span className="text-xs text-tertiary">(25 calls/day free)</span>
+                  </div>
+                  <div>
+                    <label className="text-xs text-tertiary mb-1.5 block">API Key</label>
+                    <input
+                      type="password"
+                      value={settings.financialDataApis?.alphaVantage || ''}
+                      onChange={(e) => onUpdateSettings({
+                        ...settings,
+                        financialDataApis: { ...settings.financialDataApis, alphaVantage: e.target.value }
+                      })}
+                      placeholder="Enter Alpha Vantage API key..."
+                      className="glass-input w-full"
+                    />
+                    <p className="text-[10px] text-tertiary mt-1">
+                      Get free key at: <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-primary)] hover:underline">alphavantage.co</a>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Twelve Data */}
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">📈</span>
+                    <span className="text-sm font-medium text-primary">Twelve Data</span>
+                    <span className="text-xs text-tertiary">(8 calls/day free)</span>
+                  </div>
+                  <div>
+                    <label className="text-xs text-tertiary mb-1.5 block">API Key</label>
+                    <input
+                      type="password"
+                      value={settings.financialDataApis?.twelveData || ''}
+                      onChange={(e) => onUpdateSettings({
+                        ...settings,
+                        financialDataApis: { ...settings.financialDataApis, twelveData: e.target.value }
+                      })}
+                      placeholder="Enter Twelve Data API key..."
+                      className="glass-input w-full"
+                    />
+                    <p className="text-[10px] text-tertiary mt-1">
+                      Get free key at: <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-primary)] hover:underline">twelvedata.com</a>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Fyers */}
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">🏦</span>
+                    <span className="text-sm font-medium text-primary">Fyers</span>
+                    <span className="text-xs text-tertiary">(Indian markets)</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-tertiary mb-1.5 block">App ID</label>
+                      <input
+                        type="text"
+                        value={settings.financialDataApis?.fyersAppId || ''}
+                        onChange={(e) => onUpdateSettings({
+                          ...settings,
+                          financialDataApis: { ...settings.financialDataApis, fyersAppId: e.target.value }
+                        })}
+                        placeholder="Enter Fyers App ID..."
+                        className="glass-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-tertiary mb-1.5 block">Access Token</label>
+                      <input
+                        type="password"
+                        value={settings.financialDataApis?.fyersAccessToken || ''}
+                        onChange={(e) => onUpdateSettings({
+                          ...settings,
+                          financialDataApis: { ...settings.financialDataApis, fyersAccessToken: e.target.value }
+                        })}
+                        placeholder="Enter Fyers Access Token..."
+                        className="glass-input w-full"
+                      />
+                    </div>
+                    <p className="text-[10px] text-tertiary">
+                      Get API access at: <a href="https://fyers.in/api/" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-primary)] hover:underline">fyers.in</a>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Angel One */}
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)]">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">👼</span>
+                    <span className="text-sm font-medium text-primary">Angel One</span>
+                    <span className="text-xs text-tertiary">(Indian markets)</span>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-tertiary mb-1.5 block">API Key</label>
+                      <input
+                        type="password"
+                        value={settings.financialDataApis?.angelOneApiKey || ''}
+                        onChange={(e) => onUpdateSettings({
+                          ...settings,
+                          financialDataApis: { ...settings.financialDataApis, angelOneApiKey: e.target.value }
+                        })}
+                        placeholder="Enter Angel One API Key..."
+                        className="glass-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-tertiary mb-1.5 block">Client Code</label>
+                      <input
+                        type="text"
+                        value={settings.financialDataApis?.angelOneClientCode || ''}
+                        onChange={(e) => onUpdateSettings({
+                          ...settings,
+                          financialDataApis: { ...settings.financialDataApis, angelOneClientCode: e.target.value }
+                        })}
+                        placeholder="Enter Angel One Client Code..."
+                        className="glass-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-tertiary mb-1.5 block">Password</label>
+                      <input
+                        type="password"
+                        value={settings.financialDataApis?.angelOnePassword || ''}
+                        onChange={(e) => onUpdateSettings({
+                          ...settings,
+                          financialDataApis: { ...settings.financialDataApis, angelOnePassword: e.target.value }
+                        })}
+                        placeholder="Enter Angel One Password..."
+                        className="glass-input w-full"
+                      />
+                    </div>
+                    <p className="text-[10px] text-tertiary">
+                      Get API access at: <a href="https://www.angelone.in/smartapi" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-primary)] hover:underline">angelone.in</a>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         </div>
 

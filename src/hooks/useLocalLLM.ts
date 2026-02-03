@@ -38,8 +38,11 @@ interface UseLocalLLMReturn {
 }
 
 export function useLocalLLM(sessionId: string = 'default'): UseLocalLLMReturn {
-    // Detect if we are in the Tauri environment
-    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+    // Detect if we are in the Tauri environment (v1 or v2)
+    const isTauri = typeof window !== 'undefined' &&
+        (!!(window as any).__TAURI__ ||
+            !!(window as any).__TAURI_INTERNALS__ ||
+            !!(window as any).__TAURI_METADATA__);
 
     const { settings, updatePartialLLM } = useSettings();
     const [isReady, setIsReady] = useState(false);

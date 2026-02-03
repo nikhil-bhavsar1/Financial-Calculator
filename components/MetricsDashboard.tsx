@@ -107,7 +107,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
     const isPinned = pinnedIds.has(selectedMetric.id);
 
     return (
-      <div className="flex-1 flex flex-col bg-[var(--bg-base)] animate-fadeIn">
+      <div className="flex-1 flex flex-col bg-[var(--bg-base)] animate-fadeIn min-h-0">
         {/* Header */}
         <div className="glass-nav px-6 py-4 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-4">
@@ -154,7 +154,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-scroll custom-scrollbar p-6 pb-24 h-full">
+        <div className="flex-1 overflow-y-scroll custom-scrollbar p-6 pb-24">
           <div className="max-w-5xl mx-auto space-y-6">
 
             {/* Value Cards Row */}
@@ -330,7 +330,7 @@ export const MetricsDashboard: React.FC<MetricsDashboardProps> = ({ groups, pinn
 
   // Grid View (Default)
   return (
-    <div className="flex-1 flex flex-col p-4 overflow-hidden">
+    <div className="flex-1 flex flex-col p-4 overflow-hidden min-h-0">
       {/* Search Bar & Toggles */}
       <div className="flex items-center justify-between gap-4 mb-4 px-1">
 

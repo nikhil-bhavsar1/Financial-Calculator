@@ -64,6 +64,12 @@ class MatchResult:
     sign_convention: str = 'positive'
     fuzzy_score: Optional[float] = None
     semantic_score: Optional[float] = None
+    
+    def __post_init__(self):
+        """Cap confidence score at maximum value"""
+        MAX_CONFIDENCE = 3.0
+        if self.confidence_score > MAX_CONFIDENCE:
+            self.confidence_score = MAX_CONFIDENCE
 
 
 @dataclass
@@ -574,6 +580,11 @@ class MultiLayerMatchingEngine:
             if word_count > 1:
                 specificity_multiplier = 1.0 + (word_count - 1) * 0.2
                 best_match.confidence_score *= specificity_multiplier
+            
+            # Cap confidence score at maximum
+            MAX_CONFIDENCE = 3.0
+            if best_match.confidence_score > MAX_CONFIDENCE:
+                best_match.confidence_score = MAX_CONFIDENCE
             
             deduplicated.append(best_match)
         

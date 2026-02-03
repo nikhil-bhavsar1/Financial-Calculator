@@ -1,5 +1,5 @@
 // Python Bridge - Direct Python invocation with streaming progress support
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write, Read};
 use std::process::{Command, Stdio};
 use std::path::PathBuf;
 use std::env;
@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 use std::thread;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+use rusqlite::{Connection, params};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PythonRequest {
@@ -44,6 +46,10 @@ pub struct ProgressUpdate {
     pub total_pages: i32,
     pub percentage: i32,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_items: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_text: Option<String>,
 }
 
 fn find_python() -> Option<String> {
@@ -59,6 +65,52 @@ fn find_python() -> Option<String> {
         }
     }
     None
+}
+
+fn run_python_script_with_timeout(script: String, timeout_secs: u64) -> Result<String, String> {
+    let python_cmd = find_python().ok_or("Python not found")?;
+    
+    let mut child = Command::new(&python_cmd)
+        .arg("-c")
+        .arg(&script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn Python: {}", e))?;
+        
+    let start = Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+    
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    let mut stderr = String::new();
+                    if let Some(mut err_pipe) = child.stderr.take() {
+                         let _ = err_pipe.read_to_string(&mut stderr);
+                    }
+                    return Err(format!("Script failed: {}", stderr));
+                }
+                break;
+            },
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    return Err("Operation timed out".to_string());
+                }
+                thread::sleep(Duration::from_millis(50));
+            },
+            Err(e) => return Err(format!("Error waiting for process: {}", e)),
+        }
+    }
+    
+    let mut stdout_str = String::new();
+    if let Some(mut out_pipe) = child.stdout.take() {
+        out_pipe.read_to_string(&mut stdout_str)
+            .map_err(|e| format!("Failed to read output: {}", e))?;
+    }
+    
+    Ok(stdout_str)
 }
 
 fn find_api_script() -> Result<PathBuf, String> {
@@ -144,15 +196,15 @@ pub async fn run_python_analysis(
     let reader = BufReader::new(stdout);
     
     let mut final_response: Option<PythonResponse> = None;
-    let timeout_duration = Duration::from_secs(120); // 120 second timeout for large Annual Statements
+    let timeout_duration = Duration::from_secs(900); // 900 second timeout (15 mins) for very large PDFs
     let start_time = Instant::now();
-    
+
     for line in reader.lines() {
         // Check timeout
         if start_time.elapsed() > timeout_duration {
-            eprintln!("[PythonBridge] Timeout reached after 120 seconds, killing Python process");
+            eprintln!("[PythonBridge] Timeout reached after 900 seconds, killing Python process");
             let _ = child.kill();
-            return Err("PDF analysis timed out after 120 seconds. The PDF may be corrupted or too complex to process.".to_string());
+            return Err("PDF analysis timed out after 15 minutes. The document may be very large (>500 pages) or heavily formatted. Consider splitting the document or checking if it contains images that require OCR.".to_string());
         }
         
         if let Ok(line) = line {
@@ -271,13 +323,13 @@ pub async fn update_terminology_mapping(
 
 #[tauri::command]
 pub async fn calculate_metrics(
-    app: AppHandle,
+    _app: AppHandle,
     items_json: String,
 ) -> Result<PythonResponse, String> {
     let python_cmd = find_python().ok_or("Python not found")?;
     let api_script = find_api_script()?;
     
-    let request = serde_json::json!({
+    let _request = serde_json::json!({
         "command": "calculate_metrics",
         "items_json": items_json
     });
@@ -298,7 +350,7 @@ pub async fn calculate_metrics(
     let reader = BufReader::new(stdout);
     
     let mut final_response: Option<PythonResponse> = None;
-    let timeout_duration = Duration::from_secs(60); // 60 second timeout for metrics calc
+    let _timeout_duration = Duration::from_secs(60); // 60 second timeout for metrics calc
     
     for line in reader.lines() {
         if let Ok(line) = line {
@@ -326,5 +378,409 @@ pub async fn calculate_metrics(
             Ok(response)
         }
         None => Err("No response from Python for metrics calculation".to_string()),
+    }
+}
+
+// =============================================================================
+// NSE/BSE SCRAPER COMMANDS
+// =============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompanySearchResult {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub results: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i32>,
+}
+
+
+
+#[tauri::command]
+pub async fn search_companies(
+    query: String,
+    exchange: Option<String>,
+    limit: Option<i32>,
+) -> Result<CompanySearchResult, String> {
+    eprintln!("[PythonBridge] Searching companies: {}", query);
+    
+    let exchange_str = exchange.unwrap_or_else(|| "BOTH".to_string());
+    let limit_val = limit.unwrap_or(10);
+    
+    let script = format!(
+        "import sys; sys.path.extend(['python', '../python']); from scraper_bridge import search_companies_bridge; result = search_companies_bridge('{}', '{}', {}); print(result)",
+        query.replace("'", "\\'"),
+        exchange_str,
+        limit_val
+    );
+
+    match run_python_script_with_timeout(script, 45) {
+        Ok(stdout) => {
+            let result: serde_json::Value = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse search results: {}", e))?;
+            
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            let count = result.get("count").and_then(|v| v.as_i64()).map(|v| v as i32);
+            
+            Ok(CompanySearchResult {
+                success,
+                results: Some(result.clone()),
+                error: result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                query: Some(query),
+                count,
+            })
+        },
+        Err(e) => {
+            eprintln!("[PythonBridge] Search error: {}", e);
+            Ok(CompanySearchResult {
+                success: false,
+                results: None,
+                error: Some(e),
+                query: Some(query),
+                count: Some(0),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_company_details(
+    symbol: String,
+    exchange: String,
+) -> Result<CompanySearchResult, String> {
+    eprintln!("[PythonBridge] Getting company details: {} on {}", symbol, exchange);
+    
+    let script = format!(
+        "import sys; sys.path.extend(['python', '../python']); from scraper_bridge import get_company_details_bridge; result = get_company_details_bridge('{}', '{}'); print(result)",
+        symbol.replace("'", "\\'"),
+        exchange
+    );
+
+    match run_python_script_with_timeout(script, 15) {
+        Ok(stdout) => {
+            let result: serde_json::Value = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse company details: {}", e))?;
+            
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            
+            Ok(CompanySearchResult {
+                success,
+                results: Some(result.clone()),
+                error: result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                query: Some(symbol),
+                count: if success { Some(1) } else { Some(0) },
+            })
+        },
+        Err(e) => {
+            eprintln!("[PythonBridge] Details error: {}", e);
+            Ok(CompanySearchResult {
+                success: false,
+                results: None,
+                error: Some(e),
+                query: Some(symbol),
+                count: Some(0),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_stock_quote(
+    symbol: String,
+    exchange: String,
+) -> Result<CompanySearchResult, String> {
+    eprintln!("[PythonBridge] Getting stock quote: {} on {}", symbol, exchange);
+    
+    let script = format!(
+        "import sys; sys.path.extend(['python', '../python']); from scraper_bridge import get_stock_quote_bridge; result = get_stock_quote_bridge('{}', '{}'); print(result)",
+        symbol.replace("'", "\\'"),
+        exchange
+    );
+
+    match run_python_script_with_timeout(script, 15) {
+        Ok(stdout) => {
+            let result: serde_json::Value = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse stock quote: {}", e))?;
+            
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            
+            Ok(CompanySearchResult {
+                success,
+                results: Some(result.clone()),
+                error: result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                query: Some(symbol),
+                count: if success { Some(1) } else { Some(0) },
+            })
+        },
+        Err(e) => {
+            eprintln!("[PythonBridge] Quote error: {}", e);
+            Ok(CompanySearchResult {
+                success: false,
+                results: None,
+                error: Some(e),
+                query: Some(symbol),
+                count: Some(0),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn search_web(
+    query: String,
+) -> Result<CompanySearchResult, String> {
+    eprintln!("[PythonBridge] Web search: {}", query);
+    
+    let script = format!(
+        "import sys; sys.path.extend(['python', '../python']); from scraper_bridge import search_web_bridge; result = search_web_bridge('{}'); print(result)",
+        query.replace("'", "\\'")
+    );
+
+    match run_python_script_with_timeout(script, 30) {
+        Ok(stdout) => {
+            let result: serde_json::Value = serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse web search results: {}", e))?;
+            
+            let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            let count = result.get("total_count").and_then(|v| v.as_i64()).map(|v| v as i32);
+            
+            Ok(CompanySearchResult {
+                success,
+                results: Some(result.clone()),
+                error: result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                query: Some(query),
+                count,
+            })
+        },
+        Err(e) => {
+            eprintln!("[PythonBridge] Web search error: {}", e);
+            Ok(CompanySearchResult {
+                success: false,
+                results: None,
+                error: Some(e),
+                query: Some(query),
+                count: Some(0),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_scraper_status() -> Result<CompanySearchResult, String> {
+    eprintln!("[PythonBridge] Getting scraper status");
+    
+    let python_cmd = find_python().ok_or("Python not found")?;
+    
+    let output = Command::new(&python_cmd)
+        .arg("-c")
+        .arg("import sys; sys.path.extend(['python', '../python']); from scraper_bridge import get_scraper_status_bridge; result = get_scraper_status_bridge(); print(result)")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to get scraper status: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Ok(CompanySearchResult {
+            success: false,
+            results: None,
+            error: Some(stderr.to_string()),
+            query: None,
+            count: Some(0),
+        });
+    }
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse scraper status: {}", e))?;
+    
+    let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    
+    Ok(CompanySearchResult {
+        success,
+        results: Some(result),
+        error: None,
+        query: None,
+        count: None,
+    })
+}
+
+#[tauri::command]
+pub async fn get_db_data() -> Result<serde_json::Value, String> {
+    eprintln!("[PythonBridge] Fetching DB data");
+
+    let python_cmd = find_python().ok_or("Python not found")?;
+    let api_script = find_api_script()?;
+
+    let request = serde_json::json!({
+        "command": "get_db_data"
+    });
+
+    let mut child = Command::new(&python_cmd)
+        .arg(&api_script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn Python: {}", e))?;
+
+    // Send request
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(request.to_string().as_bytes())
+            .map_err(|e| format!("Failed to write: {}", e))?;
+        stdin.write_all(b"\n").ok();
+        stdin.flush().ok();
+    }
+
+    // Read response with extended timeout for DB queries
+    let stdout = child.stdout.take()
+        .ok_or("Failed to capture Python stdout")?;
+    let reader = BufReader::new(stdout);
+
+    let mut final_response: Option<PythonResponse> = None;
+    let timeout_duration = Duration::from_secs(30); // 30 seconds for DB query
+    let start_time = Instant::now();
+
+    for line in reader.lines() {
+        if start_time.elapsed() > timeout_duration {
+            eprintln!("[PythonBridge] DB data fetch timeout");
+            let _ = child.kill();
+            return Err("Database query timed out after 30 seconds. The database may be locked or contain too much data.".to_string());
+        }
+
+        if let Ok(line) = line {
+            if !line.trim().starts_with('{') {
+                continue;
+            }
+
+            if let Ok(response) = serde_json::from_str::<PythonResponse>(&line) {
+                final_response = Some(response);
+                break;
+            }
+        }
+    }
+
+    // Wait for process to finish
+    let _ = child.wait();
+
+    match final_response {
+        Some(response) => {
+            // Return the full response including status and data
+            let response_value = serde_json::to_value(&response)
+                .map_err(|e| format!("Failed to serialize response: {}", e))?;
+            Ok(response_value)
+        }
+        None => Err("No response from Python for DB data fetch".to_string()),
+    }
+}
+
+// =============================================================================
+// STREAMING DATABASE UPDATES - FOR RAW DB VIEW
+// =============================================================================
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseUpdate {
+    pub action: String,
+    pub table: String,
+    pub row_id: Option<i64>,
+    pub data: Option<serde_json::Value>,
+}
+
+#[tauri::command]
+pub async fn start_db_streaming(
+    app: AppHandle,
+    _window: tauri::Window,
+) -> Result<(), String> {
+    eprintln!("[PythonBridge] Starting database streaming for Raw DB view");
+
+    // This command initiates a background task that queries the database periodically
+    // and sends updates to the frontend
+
+    let app_handle = app.clone();
+
+    // Spawn background task
+    std::thread::spawn(move || {
+        let mut counter = 0;
+
+        loop {
+            counter += 1;
+
+            // Query database every 2 seconds
+            std::thread::sleep(Duration::from_secs(2));
+
+            // Get database path (Python uses extracted_data.db)
+            let db_path = "extracted_data.db";
+            if !std::path::Path::new(db_path).exists() {
+                continue;
+            }
+
+            // Open database and query
+            let items = match (|| -> Result<Vec<serde_json::Value>, String> {
+                let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+                
+                // Query recent items (with LIMIT to prevent timeout)
+                let mut items: Vec<serde_json::Value> = Vec::new();
+
+                let mut stmt = conn.prepare("SELECT id, label, value_current, value_previous FROM financial_items ORDER BY row_index DESC LIMIT 50").map_err(|e| e.to_string())?;
+                let mut rows = stmt.query(params![]).map_err(|e| e.to_string())?;
+
+                while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                    let item = serde_json::json!({
+                        "id": row.get::<usize, String>(0).unwrap_or_default(),
+                        "label": row.get::<usize, String>(1).unwrap_or_default(),
+                        "currentYear": row.get::<usize, f64>(2).unwrap_or_default(),
+                        "previousYear": row.get::<usize, f64>(3).unwrap_or_default()
+                    });
+                    items.push(item);
+                }
+
+                Ok(items)
+            })() {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("[PythonBridge] Database error: {}", e);
+                    Vec::new()
+                }
+            };
+
+            let update = DatabaseUpdate {
+                action: if counter == 1 { "initial".to_string() } else { "incremental".to_string() },
+                table: "financial_items".to_string(),
+                row_id: None,
+                data: Some(serde_json::json!(items)),
+            };
+
+            // Emit update to frontend
+            if let Err(e) = app_handle.emit("db-update", update.clone()) {
+                eprintln!("[PythonBridge] Failed to emit db-update event: {}", e);
+            }
+
+            // Stop after 100 iterations (200 seconds)
+            if counter > 100 {
+                break;
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_db_streaming(
+    app: AppHandle,
+) -> Result<(), String> {
+    eprintln!("[PythonBridge] Stopping database streaming");
+
+    // Just emit a stop event
+    if let Err(e) = app.emit("db-streaming-stopped", true) {
+        Err(format!("Failed to emit stop event: {}", e))
+    } else {
+        Ok(())
     }
 }

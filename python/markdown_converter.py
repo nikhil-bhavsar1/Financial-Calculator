@@ -247,7 +247,7 @@ class MarkdownConverter:
             return True
         return False
 
-    def _table_to_markdown(self, table, nearby_blocks: List = None) -> str:
+    def _table_to_markdown(self, table, nearby_blocks: Optional[List] = None) -> str:
         """Convert a PyMuPDF table object to a Markdown table string with enhanced header handling."""
         try:
             rows = table.extract()
@@ -315,3 +315,274 @@ class MarkdownConverter:
         except Exception as e:
             logger.warning(f"Table markdown conversion error: {e}")
             return "[Table Conversion Failed]"
+    
+    # =============================================================================
+    # Enhanced Conversion Methods with Metadata
+    # =============================================================================
+    
+    def convert_with_metadata(self, doc: Any) -> Dict[str, Any]:
+        """
+        Convert PDF to Markdown with detailed metadata for each element.
+        
+        Returns:
+            Dictionary with markdown content and metadata
+        """
+        if not fitz:
+            return {"markdown": "", "metadata": {"error": "PyMuPDF not available"}}
+        
+        full_markdown = []
+        all_metadata = []
+        
+        for page_num, page in enumerate(doc):
+            page_result = self.convert_page_with_metadata(page, page_num)
+            full_markdown.append(f"--- Page {page_num + 1} ---\n\n{page_result['markdown']}")
+            all_metadata.extend(page_result['metadata'])
+        
+        return {
+            "markdown": "\n\n".join(full_markdown),
+            "metadata": {
+                "page_count": len(doc),
+                "elements": all_metadata,
+                "tables": [m for m in all_metadata if m.get('type') == 'table'],
+                "headers": [m for m in all_metadata if m.get('type') == 'header'],
+                "financial_lines": [m for m in all_metadata if m.get('is_financial', False)]
+            }
+        }
+    
+    def convert_page_with_metadata(self, page: Any, page_num: int) -> Dict[str, Any]:
+        """Convert a page to Markdown with element-level metadata."""
+        if not fitz:
+            return {"markdown": "", "metadata": []}
+        
+        # Extract tables
+        tables = []
+        try:
+            if hasattr(page, 'find_tables'):
+                tables = page.find_tables()
+        except Exception as e:
+            logger.warning(f"Table detection failed on page {page_num}: {e}")
+        
+        # Get text blocks
+        text_blocks = page.get_text("blocks")
+        table_rects = [t.bbox for t in tables]
+        
+        # Filter blocks inside tables
+        cleaned_blocks = []
+        for b in text_blocks:
+            bbox = fitz.Rect(b[:4])
+            is_in_table = False
+            for t_rect in table_rects:
+                if fitz.Rect(t_rect).contains(bbox) or \
+                   fitz.Rect(t_rect).intersect(bbox).get_area() > 0.5 * bbox.get_area():
+                    is_in_table = True
+                    break
+            if not is_in_table:
+                cleaned_blocks.append(b)
+        
+        # Merge date fragments
+        cleaned_blocks = self._merge_date_year_blocks(cleaned_blocks)
+        
+        # Build content items with metadata
+        content_items = []
+        element_metadata = []
+        
+        for b in cleaned_blocks:
+            text = b[4] if len(b) > 4 else ''
+            bbox = b[:4]
+            
+            # Detect element type and metadata
+            metadata = self._analyze_block(text, bbox)
+            metadata['page'] = page_num + 1
+            metadata['bbox'] = {'x': bbox[0], 'y': bbox[1], 'width': bbox[2]-bbox[0], 'height': bbox[3]-bbox[1]}
+            
+            content_items.append({
+                'y0': b[1],
+                'x0': b[0],
+                'type': 'text',
+                'content': text,
+                'metadata': metadata
+            })
+            element_metadata.append(metadata)
+        
+        # Add tables with metadata
+        for table_idx, table in enumerate(tables):
+            md_table = self._table_to_markdown(table, cleaned_blocks)
+            table_meta = {
+                'type': 'table',
+                'page': page_num + 1,
+                'table_index': table_idx,
+                'bbox': {'x': table.bbox[0], 'y': table.bbox[1], 
+                        'width': table.bbox[2]-table.bbox[0], 
+                        'height': table.bbox[3]-table.bbox[1]},
+                'row_count': table.row_count if hasattr(table, 'row_count') else 0,
+                'col_count': table.col_count if hasattr(table, 'col_count') else 0
+            }
+            
+            content_items.append({
+                'y0': table.bbox[1],
+                'x0': table.bbox[0],
+                'type': 'table',
+                'content': md_table,
+                'metadata': table_meta
+            })
+            element_metadata.append(table_meta)
+        
+        # Sort by position
+        content_items.sort(key=lambda x: (x['y0'], x['x0']))
+        
+        # Generate markdown
+        md_output = []
+        for item in content_items:
+            if item['type'] == 'text':
+                text = item['content'].strip()
+                if not text:
+                    continue
+                
+                # Skip standalone years and date fragments
+                if self._is_year_line(text) or \
+                   (self._is_date_fragment(text) and self._looks_like_header_context(text)):
+                    continue
+                
+                # Clean and normalize text
+                text = self._normalize_text(text)
+                
+                # Format based on element type
+                meta = item['metadata']
+                if meta.get('is_header'):
+                    md_output.append(f"\n## {text}\n")
+                elif meta.get('is_section'):
+                    md_output.append(f"\n### {text}\n")
+                else:
+                    md_output.append(f"{text}\n")
+                    
+            elif item['type'] == 'table':
+                md_output.append(f"\n{item['content']}\n")
+        
+        return {
+            "markdown": "\n".join(md_output),
+            "metadata": element_metadata
+        }
+    
+    def _analyze_block(self, text: str, bbox: Tuple[float, ...]) -> Dict[str, Any]:
+        """Analyze a text block and extract metadata."""
+        text = text.strip()
+        text_lower = text.lower()
+        
+        metadata = {
+            'type': 'paragraph',
+            'is_header': False,
+            'is_section': False,
+            'is_financial': False,
+            'financial_category': None,
+            'is_list_item': False,
+            'is_note': False,
+            'normalized_text': self._normalize_text(text)
+        }
+        
+        # Check for headers
+        if len(text) < 100 and text.isupper() and not text.endswith('.'):
+            metadata['is_header'] = True
+            metadata['type'] = 'header'
+        
+        # Check for section headers
+        if re.match(r'^(Note|Schedule)\s+\d+', text, re.I):
+            metadata['is_section'] = True
+            metadata['type'] = 'section'
+        
+        # Check for list items
+        if re.match(r'^(\d+\.|\*\s+|\-\s+|\+\s+|\(\d+\)|\([a-z]\))\s+', text, re.I):
+            metadata['is_list_item'] = True
+            metadata['type'] = 'list_item'
+        
+        # Check for notes
+        if re.search(r'\bnote\s*(?:no\.?)?\s*\d+\b', text, re.I):
+            metadata['is_note'] = True
+        
+        # Check for financial content
+        financial_keywords = {
+            'assets': ['assets', 'asset', 'inventory', 'receivables', 'cash', 'investments'],
+            'liabilities': ['liabilities', 'borrowings', 'payables', 'debt', 'loans'],
+            'equity': ['equity', 'capital', 'share', 'reserves', 'retained'],
+            'income': ['revenue', 'income', 'profit', 'sales', 'turnover'],
+            'expenses': ['expenses', 'cost', 'expense', 'overhead']
+        }
+        
+        for category, keywords in financial_keywords.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    metadata['is_financial'] = True
+                    metadata['financial_category'] = category
+                    break
+            if metadata['is_financial']:
+                break
+        
+        return metadata
+    
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text: lowercase and clean whitespace."""
+        if not text:
+            return ""
+        # Convert to lowercase
+        text = text.lower()
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+    
+    def extract_financial_items_from_markdown(self, markdown: str) -> List[Dict[str, Any]]:
+        """
+        Extract financial line items from markdown content.
+        
+        Returns:
+            List of financial items with metadata
+        """
+        items = []
+        lines = markdown.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if line looks like a financial item
+            # Pattern: label followed by numbers
+            match = re.match(r'^([\w\s\-\&]+?)\s+([\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?)', line)
+            if match:
+                label = match.group(1).strip()
+                value_str = match.group(2).strip()
+                
+                # Clean value
+                clean_value = re.sub(r'[\(\)\s]', '', value_str).replace(',', '')
+                try:
+                    value = float(clean_value)
+                    is_negative = '(' in value_str or value_str.startswith('-')
+                    
+                    # Detect category
+                    label_lower = label.lower()
+                    category = 'other'
+                    categories = {
+                        'assets': ['assets', 'inventory', 'receivables', 'cash', 'investments', 'property'],
+                        'liabilities': ['liabilities', 'borrowings', 'payables', 'debt'],
+                        'equity': ['equity', 'capital', 'share', 'reserves'],
+                        'income': ['revenue', 'income', 'profit', 'sales'],
+                        'expenses': ['expenses', 'cost', 'expense']
+                    }
+                    
+                    for cat, keywords in categories.items():
+                        if any(kw in label_lower for kw in keywords):
+                            category = cat
+                            break
+                    
+                    items.append({
+                        'label': label,
+                        'normalized_label': self._normalize_text(label),
+                        'value': value,
+                        'is_negative': is_negative,
+                        'category': category,
+                        'line_number': line_num,
+                        'raw_line': line,
+                        'raw_line_normalized': self._normalize_text(line)
+                    })
+                except ValueError:
+                    pass
+        
+        return items

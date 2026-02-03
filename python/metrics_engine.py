@@ -117,24 +117,26 @@ class MetricsEngine:
             'profit_for_the_year': ['net profit', 'profit after tax', 'net income', 'pat', 'profit for the year'],
             'ebitda': ['ebitda', 'operating profit before depreciation'],
             'operating_expenses': ['operating expenses', 'other expenses'],
-            'finance_cost': ['finance cost', 'interest expense', 'interest'],
-            'tax_expense': ['tax expense', 'income tax'],
+            'finance_cost': ['finance cost', 'interest expense', 'interest', 'finance charges'],
+            'tax_expense': ['tax expense', 'income tax', 'current tax', 'deferred tax'],
             
             # Balance Sheet
             'total_assets': ['total assets'],
             'total_current_assets': ['current assets'],
-            'property_plant_equipment': ['property plant and equipment', 'ppe', 'fixed assets'],
-            'inventories': ['inventories', 'inventory'],
-            'trade_receivables': ['trade receivables', 'accounts receivable'],
-            'cash_and_equivalents': ['cash and cash equivalents', 'cash', 'cash equivalents'],
+            'property_plant_equipment': ['property plant and equipment', 'ppe', 'fixed assets', 'tangible assets'],
+            'capital_work_in_progress': ['capital work-in-progress', 'cwip', 'capital work in progress'],
+            'inventories': ['inventories', 'inventory', 'stock-in-trade'],
+            'trade_receivables': ['trade receivables', 'accounts receivable', 'sundry debtors', 'bill receivables'],
+            'cash_and_equivalents': ['cash and cash equivalents', 'cash', 'cash equivalents', 'bank balances'],
             'total_liabilities': ['total liabilities'],
             'total_current_liabilities': ['current liabilities'],
-            'total_equity': ['total equity', 'shareholders equity'],
-            'total_borrowings': ['total debt', 'borrowings', 'total borrowings'],
-            'long_term_borrowings': ['long term debt'],
+            'trade_payables': ['trade payables', 'accounts payable', 'sundry creditors', 'bill payables'],
+            'total_equity': ['total equity', 'shareholders equity', 'net worth'],
+            'total_borrowings': ['total debt', 'borrowings', 'total borrowings', 'loans'],
+            'long_term_borrowings': ['long term debt', 'non-current borrowings'],
             
             # Market
-            'number_of_shares': ['shares outstanding', 'number of shares', 'shares'],
+            'number_of_shares': ['shares outstanding', 'number of shares', 'shares', 'equity shares'],
             'market_capitalization': ['market cap', 'market capitalization'],
         }
         
@@ -144,6 +146,77 @@ class MetricsEngine:
                     return term_key
         
         return None
+    
+    def match_cell_to_term(self, cell) -> str:
+        """
+        Match a FinancialCell to a term key using enhanced context.
+        """
+        # 1. Try matching with full context (Section + Row Header)
+        # e.g. "Non-Current Assets" -> "Property Plant Equipment"
+        
+        # Combine section and header for richer search if needed
+        full_text = f"{cell.section} {cell.row_header}"
+        
+        # Try native matcher first
+        if find_best_matching_term:
+            match = find_best_matching_term(cell.row_header)
+            if match:
+                return match.get('term_key', '')
+        
+        # Context-aware overrides
+        header_lower = cell.row_header.lower()
+        section_lower = cell.section.lower()
+        
+        # Example: "Others" in "Current Assets" -> "other_current_assets"
+        if "other" in header_lower:
+            if "current assets" in section_lower:
+                 return "other_current_assets"
+            if "current liabilities" in section_lower:
+                 return "other_current_liabilities"
+                 
+        return self.match_item_to_term(cell.row_header, cell.value)
+
+    def load_from_graph(self, graph):
+        """
+        Load data from a FinancialTableGraph.
+        """
+        # Lazy import types to avoid circular dependency
+        from table_graph_builder import FinancialTableGraph, FinancialCell
+        
+        if not isinstance(graph, FinancialTableGraph):
+            return
+
+        for cell in graph.cells:
+            if not cell.value: continue
+            
+            # Determine Term Key
+            term_key = self.match_cell_to_term(cell)
+            if not term_key: continue
+            
+            # Determine Year (Current vs Previous)
+            # Use period_date or period_label from cell
+            # The engine currently expects "current" vs "previous" implicitly
+            # We need a way to map dates to "Current/Previous" relative to the document
+            
+            # For now, rely on column_type if set by builder
+            is_current = False
+            is_previous = False
+            
+            # Check explicit column type first
+            col_meta = next((c for c in graph.columns if c.index == cell.col_idx), None)
+            if col_meta:
+                if col_meta.column_type == 'amount_current':
+                    is_current = True
+                elif col_meta.column_type == 'amount_previous':
+                    is_previous = True
+            
+            # Apply Sign
+            final_value = cell.value * cell.sign
+            
+            if is_current:
+                self.inputs_current[term_key] = final_value
+            elif is_previous:
+                self.inputs_previous[term_key] = final_value
     
     def add_item(self, label: str, current_value: float, previous_value: float = None):
         """Add an extracted item with current and previous year values."""

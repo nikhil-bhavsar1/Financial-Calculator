@@ -395,6 +395,182 @@ export const BALANCE_SHEET_LIABILITIES_TERMS: TermMapping[] = [
         }
     },
     {
+        id: 'current_maturities_long_term_debt',
+        category: 'Balance Sheet - Liabilities',
+        key: 'current_maturities_long_term_debt',
+        label: 'Current Maturities of Long Term Debt',
+        keywords_indas: [
+            'current maturities of long term debt', 'current maturities of long term borrowings',
+            'current portion of long term debt', 'current portion of long term borrowings',
+            'short-term portion of long-term borrowings', 'due within one year'
+        ],
+        keywords_gaap: [
+            'current portion of long-term debt', 'short-term debt',
+            'current maturities long term debt', 'long-term debt current portion'
+        ],
+        keywords_ifrs: [
+            'current maturities of long-term borrowings',
+            'short-term portion of long-term borrowings'
+        ],
+        related_standards: {
+            indas: ['IndAS 1'],
+            gaap: ['ASC 470'],
+            ifrs: ['IAS 1']
+        }
+    },
+    {
+        id: 'employee_benefits_obligation',
+        category: 'Balance Sheet - Liabilities',
+        key: 'employee_benefits_obligation',
+        label: 'Employee Benefits Obligation',
+        keywords_indas: [
+            'employee benefits obligation', 'gratuity obligation',
+            'leave encashment obligation', 'pension obligation',
+            'post-employment benefit obligation', 'employee benefit expense payable'
+        ],
+        keywords_gaap: [
+            'pension liability', 'post-employment benefits',
+            'defined benefit obligation', 'deferred compensation'
+        ],
+        keywords_ifrs: [
+            'employee benefits', 'defined benefit obligation',
+            'post-employment benefit obligation'
+        ],
+        related_standards: {
+            indas: ['IndAS 19'],
+            gaap: ['ASC 715'],
+            ifrs: ['IAS 19']
+        }
+    },
+    {
+        id: 'statutory_dues_payable',
+        category: 'Balance Sheet - Liabilities',
+        key: 'statutory_dues_payable',
+        label: 'Statutory Dues Payable',
+        keywords_indas: [
+            'statutory dues', 'provident fund payable', 'employee state insurance payable',
+            'gratuity payable', 'professional tax payable', 'payroll taxes payable'
+        ],
+        keywords_gaap: [
+            'accrued payroll taxes', 'income taxes payable'
+        ],
+        keywords_ifrs: [
+            'trade and other payables', 'employee benefit obligations'
+        ],
+        related_standards: {
+            indas: ['IndAS 19'],
+            gaap: ['ASC 740'],
+            ifrs: ['IAS 19']
+        }
+    },
+    {
+        id: 'contract_liabilities',
+        category: 'Balance Sheet - Liabilities',
+        key: 'contract_liabilities',
+        label: 'Contract Liabilities',
+        keywords_indas: [
+            'contract liabilities', 'advance from customers', 'deferred revenue',
+            'unearned revenue', 'customer advances', 'contract asset'
+        ],
+        keywords_gaap: [
+            'deferred revenue', 'contract liabilities', 'unearned revenue'
+        ],
+        keywords_ifrs: [
+            'contract liabilities', 'deferred income',
+            'advances from customers'
+        ],
+        related_standards: {
+            indas: ['IndAS 115'],
+            gaap: ['ASC 606'],
+            ifrs: ['IFRS 15']
+        }
+    },
+    {
+        id: 'unclaimed_dividends',
+        category: 'Balance Sheet - Liabilities',
+        key: 'unclaimed_dividends',
+        label: 'Unclaimed Dividends',
+        keywords_indas: [
+            'unclaimed dividends', 'dividends unpaid', 'unpaid dividend account',
+            'dividend not claimed', 'outstanding dividends'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 1']
+        }
+    },
+    {
+        id: 'other_current_liabilities',
+        category: 'Balance Sheet - Liabilities',
+        key: 'other_current_liabilities',
+        label: 'Other Current Liabilities',
+        keywords_indas: [
+            'other current liabilities', 'advances other than capital advances',
+            'balance with government authorities', 'gst input credit',
+            'advance tax', 'tax refund payable', 'dividend payable',
+            'interest payable', 'dividend payable account'
+        ],
+        keywords_gaap: [
+            'other current liabilities', 'accrued expenses',
+            'income tax receivable', 'other receivables'
+        ],
+        keywords_ifrs: [
+            'other current liabilities', 'trade and other payables'
+        ],
+        related_standards: {
+            indas: ['IndAS 1'],
+            gaap: ['ASC 210'],
+            ifrs: ['IAS 1']
+        }
+    },
+    {
+        id: 'trade_payables',
+        category: 'Balance Sheet - Liabilities',
+        key: 'trade_payables',
+        label: 'Trade Payables',
+        keywords_indas: [
+            'trade payables', 'sundry creditors', 'accounts payable',
+            'creditors for goods and services', 'trade and other payables',
+            'sundry creditors', 'trade creditors', 'amounts due to suppliers',
+            'creditors for purchases', 'bills payable'
+        ],
+        keywords_gaap: [
+            'accounts payable', 'trade payables', 'accounts payable trade',
+            'trade accounts payable', 'suppliers', 'vendor payables'
+        ],
+        keywords_ifrs: [
+            'trade payables', 'trade and other payables',
+            'trade creditors'
+        ],
+        related_standards: {
+            indas: ['IndAS 1', 'IndAS 109'],
+            gaap: ['ASC 210'],
+            ifrs: ['IAS 1', 'IFRS 9']
+        }
+    },
+    {
+        id: 'other_financial_liabilities',
+        category: 'Balance Sheet - Liabilities',
+        key: 'other_financial_liabilities',
+        label: 'Other Financial Liabilities',
+        keywords_indas: [
+            'other financial liabilities', 'interest payable', 'dividend payable',
+            'deposits from customers', 'advances from customers'
+        ],
+        keywords_gaap: [
+            'other financial liabilities', 'interest payable'
+        ],
+        keywords_ifrs: [
+            'trade and other payables', 'other financial liabilities'
+        ],
+        related_standards: {
+            indas: ['IndAS 109'],
+            gaap: ['ASC 470'],
+            ifrs: ['IFRS 9']
+        }
+    },
+    {
         id: 'total_liabilities',
         category: 'Balance Sheet - Liabilities',
         key: 'total_liabilities',

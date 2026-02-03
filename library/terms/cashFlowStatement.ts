@@ -457,5 +457,112 @@ export const CASH_FLOW_STATEMENT_TERMS: TermMapping[] = [
             'net increase decrease in cash', 'net change in cash',
             'net movement in cash'
         ]
+    },
+    {
+        id: 'cash_from_operations',
+        category: 'Cash Flow - Operating',
+        key: 'cash_from_operations',
+        label: 'Cash Flow from Operating Activities',
+        keywords_indas: [
+            'cash flow from operating activities', 'cash from operating activities',
+            'cash generated from operations', 'net cash from operating activities',
+            'cash flow operations', 'operating cash flow'
+        ],
+        keywords_gaap: [
+            'cash from operating activities', 'cash from operations'
+        ],
+        keywords_ifrs: [
+            'cash flows from operating activities', 'cash from operating activities'
+        ],
+        related_standards: {
+            indas: ['IndAS 7'],
+            gaap: ['ASC 230'],
+            ifrs: ['IAS 7']
+        }
+    },
+    {
+        id: 'cash_from_investing',
+        category: 'Cash Flow - Investing',
+        key: 'cash_from_investing',
+        label: 'Cash Flow from Investing Activities',
+        keywords_indas: [
+            'cash flow from investing activities', 'cash from investing activities',
+            'net cash from investing activities', 'cash flow investing'
+        ],
+        keywords_gaap: [
+            'cash from investing activities'
+        ],
+        keywords_ifrs: [
+            'cash flows from investing activities'
+        ],
+        related_standards: {
+            indas: ['IndAS 7'],
+            gaap: ['ASC 230'],
+            ifrs: ['IAS 7']
+        }
+    },
+    {
+        id: 'cash_from_financing',
+        category: 'Cash Flow - Financing',
+        key: 'cash_from_financing',
+        label: 'Cash Flow from Financing Activities',
+        keywords_indas: [
+            'cash flow from financing activities', 'cash from financing activities',
+            'net cash from financing activities', 'cash flow financing'
+        ],
+        keywords_gaap: [
+            'cash from financing activities'
+        ],
+        keywords_ifrs: [
+            'cash flows from financing activities'
+        ],
+        related_standards: {
+            indas: ['IndAS 7'],
+            gaap: ['ASC 230'],
+            ifrs: ['IAS 7']
+        }
+    },
+    {
+        id: 'cash_and_bank_balances',
+        category: 'Balance Sheet - Assets',
+        key: 'cash_and_bank_balances',
+        label: 'Cash and Bank Balances',
+        keywords_indas: [
+            'cash and bank balances', 'cash in hand and at bank',
+            'bank balances', 'cash on hand', 'balances with banks',
+            'cash equivalents', 'fixed deposits', 'term deposits', 'liquid investments'
+        ],
+        keywords_gaap: [
+            'cash and cash equivalents', 'cash',
+            'cash equivalents', 'cash on hand and in banks',
+            'restricted cash', 'bank balances', 'money market funds'
+        ],
+        keywords_ifrs: [
+            'cash and cash equivalents', 'cash and bank balances',
+            'cash at bank and on hand', 'short-term deposits', 'cash'
+        ],
+        related_standards: {
+            indas: ['IndAS 7'],
+            gaap: ['ASC 230'],
+            ifrs: ['IAS 7']
+        }
+    },
+    {
+        id: 'net_increase_decrease_cash',
+        category: 'Cash Flow Statement',
+        key: 'net_increase_decrease_cash',
+        label: 'Net Increase/Decrease in Cash and Cash Equivalents',
+        keywords_indas: [
+            'net increase decrease in cash and cash equivalents',
+            'net increase decrease in cash', 'cash flow for the year'
+        ],
+        keywords_gaap: [
+            'net change in cash', 'net increase decrease in cash',
+            'change in cash and cash equivalents', 'increase decrease in cash'
+        ],
+        keywords_ifrs: [
+            'net increase decrease in cash', 'net change in cash',
+            'net movement in cash'
+        ]
     }
 ];

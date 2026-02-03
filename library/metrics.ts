@@ -8,6 +8,7 @@ import { CASH_FLOW_STATEMENT_TERMS } from './terms/cashFlowStatement';
 import { FINANCIAL_RATIOS_TERMS, PER_SHARE_DATA_TERMS } from './terms/ratiosAndPerShare';
 import { OTHER_COMPREHENSIVE_INCOME_TERMS, SEGMENT_REPORTING_TERMS, TAX_TERMS } from './terms/ociAndSegments';
 import { TAX_DETAILS_TERMS } from './terms/taxDetails';
+import { MARKET_DATA_TERMS } from './terms/marketData';
 import {
   ALL_ADDITIONAL_TERMS,
   ADDITIONAL_REVENUE_TERMS,
@@ -22,6 +23,7 @@ import {
   CHANGES_IN_EQUITY_TERMS
 } from './terms/additionalComprehensiveTerms';
 import { getUserTerms, saveUserTerms, isUserAddedTerm } from './terms/userTerms';
+import { IND_AS_SPECIFIC_TERMS } from './terms/indAsSpecificTerms';
 
 // System-defined terms (built-in, read-only at runtime)
 export const SYSTEM_METRICS: TermMapping[] = [
@@ -36,7 +38,9 @@ export const SYSTEM_METRICS: TermMapping[] = [
   ...SEGMENT_REPORTING_TERMS,
   ...TAX_TERMS,
   ...TAX_DETAILS_TERMS,
-  ...ALL_ADDITIONAL_TERMS
+  ...MARKET_DATA_TERMS,
+  ...ALL_ADDITIONAL_TERMS,
+  ...IND_AS_SPECIFIC_TERMS // Add Ind AS specific terms
 ];
 
 // Build set of system term IDs for deduplication

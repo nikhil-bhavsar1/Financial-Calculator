@@ -54,7 +54,7 @@ class SectionClassifier:
                     r'\bcurrent\s+assets?\b',
                 ],
                 'boost_terms': [
-                    'total_assets', 'ppe', 'inventory', 'receivables', 'cash',
+                    'total_assets', 'ppe', 'property_plant_equipment', 'inventory', 'receivables', 'cash',
                     'investments', 'intangible_assets', 'goodwill', 'cwip'
                 ]
             },
@@ -185,7 +185,7 @@ class SectionClassifier:
         }
         
         # Minimum confidence threshold
-        self.min_confidence = 0.3
+        self.min_confidence = 0.25
     
     def classify_section(
         self, 

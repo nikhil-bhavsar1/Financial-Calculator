@@ -17,14 +17,12 @@
                 {
                     "name": "python3",
                     "cmd": "python3",
-                    "args": true,
-                    "sidecar": false
+                    "args": true
                 },
                 {
                     "name": "python",
                     "cmd": "python",
-                    "args": true,
-                    "sidecar": false
+                    "args": true
                 }
             ]
         },

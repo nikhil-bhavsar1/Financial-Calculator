@@ -187,18 +187,26 @@ def expand_abbreviations(text: str) -> str:
     """
     import re
     
-    words = text.lower().split()
+    text_lower = text.lower()
+    
+    # First, check for multi-word abbreviations (like "ind as", "ifrs", etc.)
+    # These need to be matched before word-by-word processing
+    for abbr, expansion in MULTI_WORD_ABBREVIATIONS.items():
+        # Match whole words only
+        pattern = r'\b' + re.escape(abbr) + r'\b'
+        text_lower = re.sub(pattern, expansion, text_lower)
+    
+    # Then process remaining single-word abbreviations
+    words = text_lower.split()
     expanded = []
     
     for word in words:
         # Remove punctuation for lookup
         clean_word = re.sub(r'[^\w]', '', word)
         
-        # Check in all abbreviation dictionaries
+        # Check in single-word abbreviation dictionary
         if clean_word in FINANCIAL_ABBREVIATIONS:
             expanded.append(FINANCIAL_ABBREVIATIONS[clean_word])
-        elif clean_word in MULTI_WORD_ABBREVIATIONS:
-            expanded.append(MULTI_WORD_ABBREVIATIONS[clean_word])
         else:
             expanded.append(word)
     

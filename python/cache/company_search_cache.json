@@ -1,0 +1,77 @@
+{
+  "tata": {
+    "timestamp": 1770099489.7288032,
+    "results": [
+      {
+        "name": "TATA CONSULTANCY SERV LT",
+        "symbol": "TCS.NS",
+        "isin": "",
+        "exchange": "YAHOO",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "market_cap": null,
+        "face_value": null,
+        "listing_date": null,
+        "additional_data": {
+          "yahoo_symbol": "TCS.NS"
+        }
+      },
+      {
+        "name": "TATA TECHNOLOGIES LIMITED",
+        "symbol": "TATATECH.NS",
+        "isin": "",
+        "exchange": "YAHOO",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "market_cap": null,
+        "face_value": null,
+        "listing_date": null,
+        "additional_data": {
+          "yahoo_symbol": "TATATECH.NS"
+        }
+      },
+      {
+        "name": "TATA STEEL LIMITED",
+        "symbol": "TATASTEEL.NS",
+        "isin": "",
+        "exchange": "YAHOO",
+        "sector": "Basic Materials",
+        "industry": "Steel",
+        "market_cap": null,
+        "face_value": null,
+        "listing_date": null,
+        "additional_data": {
+          "yahoo_symbol": "TATASTEEL.NS"
+        }
+      },
+      {
+        "name": "TATA STEEL LTD SPON GDR REP 1 O",
+        "symbol": "TATLY",
+        "isin": "",
+        "exchange": "YAHOO",
+        "sector": "Basic Materials",
+        "industry": "Steel",
+        "market_cap": null,
+        "face_value": null,
+        "listing_date": null,
+        "additional_data": {
+          "yahoo_symbol": "TATLY"
+        }
+      },
+      {
+        "name": "TATA HEALTH",
+        "symbol": "1255.HK",
+        "isin": "",
+        "exchange": "YAHOO",
+        "sector": "Consumer Cyclical",
+        "industry": "Footwear & Accessories",
+        "market_cap": null,
+        "face_value": null,
+        "listing_date": null,
+        "additional_data": {
+          "yahoo_symbol": "1255.HK"
+        }
+      }
+    ]
+  }
+}

@@ -12,6 +12,8 @@ pub struct ApiKeys {
     pub openai: String,
     pub openrouter: String,
     pub opencode: String,
+    pub cerebras: String,
+    pub nvidia: String,
 }
 
 impl Default for ApiKeys {
@@ -22,6 +24,8 @@ impl Default for ApiKeys {
             openai: String::new(),
             openrouter: String::new(),
             opencode: String::new(),
+            cerebras: String::new(),
+            nvidia: String::new(),
         }
     }
 }
@@ -37,6 +41,38 @@ impl Default for SupabaseConfig {
         Self {
             url: String::new(),
             key: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinancialDataApis {
+    #[serde(rename = "alphaVantage", default)]
+    pub alpha_vantage: String,
+    #[serde(rename = "twelveData", default)]
+    pub twelve_data: String,
+    #[serde(rename = "fyersAppId", default)]
+    pub fyers_app_id: String,
+    #[serde(rename = "fyersAccessToken", default)]
+    pub fyers_access_token: String,
+    #[serde(rename = "angelOneApiKey", default)]
+    pub angel_one_api_key: String,
+    #[serde(rename = "angelOneClientCode", default)]
+    pub angel_one_client_code: String,
+    #[serde(rename = "angelOnePassword", default)]
+    pub angel_one_password: String,
+}
+
+impl Default for FinancialDataApis {
+    fn default() -> Self {
+        Self {
+            alpha_vantage: String::new(),
+            twelve_data: String::new(),
+            fyers_app_id: String::new(),
+            fyers_access_token: String::new(),
+            angel_one_api_key: String::new(),
+            angel_one_client_code: String::new(),
+            angel_one_password: String::new(),
         }
     }
 }
@@ -112,6 +148,9 @@ pub struct AppSettings {
     
     #[serde(rename = "supabaseConfig", default)]
     pub supabase_config: SupabaseConfig,
+    
+    #[serde(rename = "financialDataApis", default)]
+    pub financial_data_apis: FinancialDataApis,
 }
 
 fn default_accent_color() -> String { "violet".to_string() }
@@ -131,6 +170,7 @@ impl Default for AppSettings {
             api_keys: ApiKeys::default(),
             model_name: "".to_string(),
             supabase_config: SupabaseConfig::default(),
+            financial_data_apis: FinancialDataApis::default(),
         }
     }
 }
@@ -219,6 +259,11 @@ pub fn update_setting(
         "supabaseConfig" => {
             if let Ok(val) = serde_json::from_value(value) {
                 store.settings.supabase_config = val;
+            }
+        }
+        "financialDataApis" => {
+            if let Ok(val) = serde_json::from_value(value) {
+                store.settings.financial_data_apis = val;
             }
         }
         _ => return Err(format!("Unknown setting: {}", key)),

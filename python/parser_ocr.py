@@ -174,6 +174,63 @@ class ImagePreprocessor:
                 return image
     
     @staticmethod
+    def sharpen(image: np.ndarray, strength: float = 1.5) -> np.ndarray:
+        """
+        Sharpen image to enhance text edges.
+        
+        Args:
+            image: Input image
+            strength: Sharpening strength (1.0 = no change, >1.0 = sharper)
+        """
+        if not CV2_AVAILABLE:
+            return image
+            
+        try:
+            # Create sharpening kernel
+            kernel = np.array([
+                [-1, -1, -1],
+                [-1, 8 + strength, -1],
+                [-1, -1, -1]
+            ]) * (strength / 8)
+            
+            if len(image.shape) == 3:
+                # Apply to each channel
+                sharpened = cv2.filter2D(image, -1, kernel)
+                # Blend with original to avoid over-sharpening
+                return cv2.addWeighted(image, 0.7, sharpened, 0.3, 0)
+            else:
+                sharpened = cv2.filter2D(image, -1, kernel)
+                return cv2.addWeighted(image, 0.7, sharpened, 0.3, 0)
+                
+        except Exception as e:
+            logger.debug(f"Sharpening failed: {e}")
+            return image
+    
+    @staticmethod
+    def remove_borders(image: np.ndarray, border_size: int = 10) -> np.ndarray:
+        """
+        Remove borders and scan lines from image.
+        
+        Args:
+            image: Input image
+            border_size: Size of border to remove (pixels)
+        """
+        if not CV2_AVAILABLE:
+            return image
+            
+        try:
+            h, w = image.shape[:2]
+            # Remove borders
+            if len(image.shape) == 3:
+                return image[border_size:h-border_size, border_size:w-border_size]
+            else:
+                return image[border_size:h-border_size, border_size:w-border_size]
+                
+        except Exception as e:
+            logger.debug(f"Border removal failed: {e}")
+            return image
+    
+    @staticmethod
     def apply_threshold(image: np.ndarray, method: str = 'adaptive') -> np.ndarray:
         """
         Apply thresholding to make text more distinct.
@@ -287,10 +344,12 @@ class ImagePreprocessor:
         remove_noise: bool = True,
         threshold: bool = True,
         resize: bool = True,
-        remove_borders: bool = False
+        remove_borders: bool = False,
+        sharpen: bool = True,  # New parameter
+        denoise_strength: int = 10,  # New parameter
     ) -> np.ndarray:
         """
-        Full preprocessing pipeline for OCR.
+        Full preprocessing pipeline for OCR - Enhanced for better accuracy.
         
         Args:
             image: Input image (numpy array)
@@ -300,6 +359,8 @@ class ImagePreprocessor:
             threshold: Whether to apply thresholding
             resize: Whether to resize for optimal OCR
             remove_borders: Whether to remove borders
+            sharpen: Whether to apply sharpening
+            denoise_strength: Strength of denoising (higher = more aggressive)
             
         Returns:
             Preprocessed image
@@ -315,19 +376,25 @@ class ImagePreprocessor:
                 result = cls.remove_borders(result)
             
             if resize:
-                result = cls.resize_for_ocr(result)
+                result = cls.resize_for_ocr(result, target_dpi=300)
             
             if deskew:
                 result = cls.deskew(result)
             
             if remove_noise:
-                result = cls.remove_noise(result)
+                result = cls.remove_noise(result, strength=denoise_strength)
             
             if enhance_contrast:
-                result = cls.enhance_contrast(result)
+                # Use higher clip limit for better contrast
+                result = cls.enhance_contrast(result, clip_limit=3.0)
+            
+            if sharpen:
+                # Apply sharpening to enhance text edges
+                result = cls.sharpen(result, strength=1.5)
             
             if threshold:
-                result = cls.apply_threshold(result, method='adaptive')
+                # Try Sauvola thresholding for better document handling
+                result = cls.apply_threshold(result, method='sauvola')
             
             return result
             

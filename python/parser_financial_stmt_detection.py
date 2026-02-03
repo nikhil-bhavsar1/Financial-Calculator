@@ -54,6 +54,13 @@ class FinancialPatternMatcher:
             r'cash\s+flow\s+statement',
             r'statement\s+showing\s+changes\s+in\s+cash',
         ],
+        StatementType.NOTES: [
+            r'notes\s+to\s+(?:the\s+)?financial\s+statements',
+            r'notes\s+to\s+(?:the\s+)?accounts',
+            r'summary\s+of\s+significant\s+accounting\s+policies',
+            r'accompanying\s+notes',
+            r'notes\s+forming\s+part\s+of',
+        ],
     }
     
     # Combined patterns for detecting both entity and statement type together
@@ -74,6 +81,10 @@ class FinancialPatternMatcher:
             r'stand[-\s]?alone\s+(?:statement\s+of\s+)?cash\s+flows?',
             r'standalone\s+cash\s+flow\s+statement',
         ],
+        (ReportingEntity.STANDALONE, StatementType.NOTES): [
+            r'notes\s+to\s+(?:the\s+)?standalone\s+financial\s+statements',
+            r'standalone\s+notes',
+        ],
         (ReportingEntity.CONSOLIDATED, StatementType.BALANCE_SHEET): [
             r'consolidated\s+balance\s+sheet',
             r'consolidated\s+statement\s+of\s+(?:financial\s+)?position',
@@ -86,6 +97,10 @@ class FinancialPatternMatcher:
         (ReportingEntity.CONSOLIDATED, StatementType.CASH_FLOW): [
             r'consolidated\s+(?:statement\s+of\s+)?cash\s+flows?',
             r'consolidated\s+cash\s+flow\s+statement',
+        ],
+        (ReportingEntity.CONSOLIDATED, StatementType.NOTES): [
+            r'notes\s+to\s+(?:the\s+)?consolidated\s+financial\s+statements',
+            r'consolidated\s+notes',
         ],
     }
     
@@ -191,6 +206,27 @@ class FinancialPatternMatcher:
                 'proceeds from borrowings',
             ],
         },
+        StatementType.NOTES: {
+            'strong': [
+                'significant accounting policies',
+                'property, plant and equipment schedule',
+                'maturity analysis for lease liabilities',
+                'reconciliation of tax expense',
+                'financial risk management',
+                'capital management',
+                'fair value measurements',
+            ],
+            'moderate': [
+                'depreciation method',
+                'estimated useful lives',
+                'defined benefit plan',
+                'contingent liabilities',
+                'commitments',
+                'related party disclosures',
+                'earnings per share',
+                'audit fees',
+            ],
+        },
     }
     
     # Section markers within statements
@@ -252,6 +288,25 @@ class FinancialPatternMatcher:
             ],
             'NET_CHANGE': [
                 r'net\s+(?:increase|decrease|change)\s+in\s+cash',
+            ],
+        },
+        StatementType.NOTES: {
+            'ACCOUNTING_POLICIES': [
+                r'accounting\s+policies',
+                r'basis\s+of\s+preparation',
+            ],
+            'PPE': [
+                r'property,\s+plant\s+and\s+equipment',
+                r'tangible\s+assets',
+            ],
+            'INVESTMENTS': [
+                r'investments',
+            ],
+            'TRADE_RECEIVABLES': [
+                r'trade\s+receivables',
+            ],
+            'CASH': [
+                r'cash\s+and\s+cash\s+equivalents',
             ],
         },
     }
@@ -421,15 +476,92 @@ class FinancialStatementDetector:
         """Check if text contains financial table structure."""
         text_lower = text.lower()
         
-        has_particulars = bool(re.search(r'particulars', text_lower))
+        # Check for Index/TOC indicators - usually these are NOT the actual statement
+        # "Index to Consolidated..."
+        if re.search(r'index\W+to\W+consolidated', text_lower[:500]):
+            return False
+            
+        # "Page" column header
+        if re.search(r'\bpage\b\s*$', text_lower[:300], re.MULTILINE):
+            # But ensure it's not a "Page 1 of 5" footer at the top
+            if "index" in text_lower[:500] or "content" in text_lower[:500]:
+                return False
+
+        # Check for markdown table markers (from MarkdownConverter output)
+        # Markdown tables have pipe characters for column separators
+        pipe_count = text.count('|')
+        if pipe_count >= 10:  # Multiple rows with pipes = likely a table
+            return True
+        
+        # Check for markdown table row pattern: | cell | cell |
+        if re.search(r'\|[^|]+\|[^|]+\|', text):
+            return True
+        
+        # For non-markdown tables, require stronger indicators
+        # Financial tables usually declare units (in millions, etc.)
+        has_units = bool(re.search(r'(?:in\s+millions|in\s+thousands|currency\s+in)', text_lower[:1000]))
+        
+        # Check for column headers typical in financial statements
+        has_headers = bool(re.search(
+            r'(?:particulars|description|assets|liabilities|equity)',
+            text_lower[:2000]  # Check header area
+        ))
+        
         has_date = bool(re.search(
-            r'(?:as\s+(?:at|on)|year\s+ended|31.*?(?:march|mar)|20\d{2})',
+            r'(?:as\s+(?:at|on)|year\s+ended|31.*?(?:march|mar)|september|december|20\d{2})',
             text_lower
         ))
+        
         numbers = re.findall(r'[\d,]+(?:\.\d{2})?', text)
         has_numbers = len(numbers) >= 4
         
-        return has_particulars and has_date and has_numbers
+        result = (has_units and has_numbers) or (has_headers and has_date and has_numbers)
+        return result
+        
+        # Check for markdown table row pattern: | cell | cell |
+        if re.search(r'\|[^|]+\|[^|]+\|', text):
+            return True
+        
+        # For non-markdown tables, require stronger indicators
+        # Financial tables usually declare units (in millions, etc.)
+        has_units = bool(re.search(r'(?:in\s+millions|in\s+thousands|currency\s+in)', text_lower[:1000]))
+        
+        # Check for column headers typical in financial statements
+        has_headers = bool(re.search(
+            r'(?:particulars|description|assets|liabilities|equity)',
+            text_lower[:2000]  # Check header area
+        ))
+        
+        has_date = bool(re.search(
+            r'(?:as\s+(?:at|on)|year\s+ended|31.*?(?:march|mar)|september|december|20\d{2})',
+            text_lower
+        ))
+        
+        numbers = re.findall(r'[\d,]+(?:\.\d{2})?', text)
+        has_numbers = len(numbers) >= 4
+        
+        result = (has_units and has_numbers) or (has_headers and has_date and has_numbers)
+        
+        # DEBUG: Trace why specific pages are being flagged
+        snippet = text_lower[:100].replace('\n', ' ')
+        
+        reason = []
+        if pipe_count >= 10: reason.append("pipes>=10")
+        if re.search(r'\|[^|]+\|[^|]+\|', text): reason.append("md_row")
+        if has_units and has_numbers: reason.append("units+nums")
+        if has_headers and has_date and has_numbers: reason.append("heuristic")
+        
+        # Re-check TOC for debug
+        is_toc = False
+        header_text = text_lower[:1000]
+        if re.search(r'(?:index\s+to|table\s+of\s+contents|financial\s+statement\s+schedule|supplementary\s+data)', header_text):
+            is_toc = True
+            
+        print(f"DEBUG TABLE DETECT: '{snippet}...' -> Res={result} (TOC={is_toc}, Reasons={reason})")
+            
+        return result
+            
+        return result
     
     def detect_year_labels(self, text: str) -> Tuple[str, str]:
         """

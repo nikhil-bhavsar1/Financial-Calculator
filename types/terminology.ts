@@ -78,6 +78,7 @@ export type TermCategory =
     | 'Income Statement - IFRS 18'
     | 'Disclosures'
     | 'Statement of Changes in Equity'
+    | 'Current Market Price'
     | 'Misc';
 
 export const CATEGORY_OPTIONS: TermCategory[] = [
@@ -96,6 +97,7 @@ export const CATEGORY_OPTIONS: TermCategory[] = [
     'Cost of Revenue',
     'Current Assets',
     'Current Liabilities',
+    'Current Market Price',
     'Debt',
     'Derivatives',
     'Disclosures',

@@ -116,6 +116,10 @@ class TextPreprocessor:
         # Step 8: Normalize number formats
         canonical = self._normalize_numbers(canonical)
         
+        # Step 9: Apply sign multiplier to numbers in canonical form if negative
+        if sign_multiplier == -1:
+            canonical = self._apply_sign_to_numbers(canonical)
+        
         return PreprocessingResult(
             original_text=original,
             cleaned_text=cleaned,
@@ -145,8 +149,31 @@ class TextPreprocessor:
         
         # Check for explicit negative indicators at start
         for indicator, multiplier in SIGN_CONVENTION_INDICATORS.items():
-            if text_lower.startswith(indicator.lower()):
+            indicator_lower = indicator.lower()
+            # Check if text starts with this indicator exactly
+            if text_lower.startswith(indicator_lower):
                 return multiplier
+            
+            # Handle variations with parentheses and periods
+            # For indicators like "(cr)", also match "(cr.)" (period inside parens)
+            # For indicators like "cr.", also match "(cr)" and "(cr.)"
+            if indicator_lower.startswith('(') and indicator_lower.endswith(')'):
+                # Indicator is already in parentheses, e.g., "(cr)"
+                # Also check for version with period inside: "(cr.)"
+                base = indicator_lower[1:-1]  # Remove parentheses: "cr"
+                # Check for (cr.) with period INSIDE the parentheses
+                if text_lower.startswith(f'({base}.)'):
+                    return multiplier
+            elif indicator_lower.endswith('.'):
+                # Indicator ends with period, e.g., "cr."
+                # Also check for version in parentheses: "(cr)" and "(cr.)"
+                base = indicator_lower.rstrip('.')  # Remove period: "cr"
+                if text_lower.startswith(f'({base})') or text_lower.startswith(f'({base}).'):
+                    return multiplier
+            else:
+                # Plain indicator, check for parenthesized version
+                if text_lower.startswith(f'({indicator_lower})') or text_lower.startswith(f'({indicator_lower}).'):
+                    return multiplier
         
         # Check for parenthetical numbers (typically negative)
         if self.patterns['parenthetical_numbers'].search(text):
@@ -185,18 +212,26 @@ class TextPreprocessor:
     def _clean_formatting(self, text: str) -> str:
         """
         Clean formatting artifacts like dot leaders and excess whitespace.
+        Also converts to lowercase for better matching.
         
         Args:
             text: Input text
             
         Returns:
-            Cleaned text
+            Cleaned text in lowercase with normalized whitespace
         """
-        # Remove dot leaders
+        # Convert to lowercase for consistent matching
+        text = text.lower()
+        
+        # Remove dot leaders (......)
         text = self.patterns['dot_leaders'].sub(' ', text)
         
-        # Normalize whitespace
+        # Normalize all whitespace (tabs, newlines, multiple spaces → single space)
         text = self.patterns['excess_whitespace'].sub(' ', text)
+        
+        # Remove leading/trailing whitespace from each word
+        words = text.split()
+        text = ' '.join(words)
         
         return text.strip()
     
@@ -275,21 +310,22 @@ class TextPreprocessor:
         text = text.lower()
         
         # Replace smart quotes and special characters
+        # Note: We preserve dashes here because they might be part of dates (YYYY-MM-DD)
+        # The dash-to-space conversion happens after date normalization
         replacements = {
             ''': "'", ''': "'", '"': '"', '"': '"',
-            '–': '-', '—': '-', '−': '-',
+            '–': ' ', '—': ' ', '−': ' ',
             ' ': ' ', ' ': ' ', '\xa0': ' ',
             '&': ' and ',
             '/': ' ',
-            '-': ' ',
             '_': ' '
         }
         
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        # Remove remaining non-alphanumeric except spaces
-        text = re.sub(r'[^\w\s]', '', text)
+        # Remove remaining non-alphanumeric except spaces, dashes (for dates), and periods (for decimals)
+        text = re.sub(r'[^\w\s.\-]', '', text)
         
         # Normalize multiple spaces
         text = self.patterns['excess_whitespace'].sub(' ', text)
@@ -334,6 +370,7 @@ class TextPreprocessor:
     def _normalize_numbers(self, text: str) -> str:
         """
         Normalize number formats by removing thousand separators.
+        Handles both standard (1,000,000) and Indian (1,00,000) formats.
         Preserves decimal points.
         
         Args:
@@ -342,8 +379,11 @@ class TextPreprocessor:
         Returns:
             Text with normalized numbers
         """
+        # First, protect decimal points by temporarily replacing them
+        text = re.sub(r'(\d)\.(\d)', r'\1<DECIMAL>\2', text)
+        
         # Remove thousand separators (commas between digits)
-        # But preserve decimal points
+        # This handles both standard and Indian formats
         def replace_separator(match):
             return match.group(1) + match.group(2)
         
@@ -353,7 +393,37 @@ class TextPreprocessor:
             prev_text = text
             text = self.patterns['thousand_separators'].sub(replace_separator, text)
         
+        # Restore decimal points
+        text = text.replace('<DECIMAL>', '.')
+        
         return text
+    
+    def _apply_sign_to_numbers(self, text: str) -> str:
+        """
+        Apply negative sign to numbers in text.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Text with negative sign applied to numbers
+        """
+        # Find positive numbers and add negative sign
+        # Match numbers that don't already have a sign
+        def add_negative_sign(match):
+            number = match.group(1)
+            # Don't add sign if already negative
+            if number.startswith('-'):
+                return match.group(0)
+            return f'-{number}'
+        
+        # Apply to standalone numbers (preceded by space or start of string)
+        result = re.sub(r'(?<=\s)(\d+(?:\.\d+)?)', add_negative_sign, text)
+        # Also apply to numbers at the start
+        if result and result[0].isdigit():
+            result = '-' + result
+        
+        return result
     
     def preprocess_batch(
         self, 

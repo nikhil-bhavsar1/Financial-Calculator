@@ -1,0 +1,36 @@
+[Terminology] Loaded unified database:
+[Terminology]   - 329 terms
+[Terminology]   - 2097 unique keywords
+[Terminology]   - 16 categories
+
+============================================================
+UNIFIED FINANCIAL TERMINOLOGY DATABASE
+============================================================
+Total Terms:              329
+Total Keywords:           2660
+Unique Keywords:          2097
+Categories:               16
+Terms in Map:             288
+Keywords Indexed:         2097
+
+Categories:
+  - Balance Sheet - Assets
+  - Balance Sheet - Equity
+  - Balance Sheet - Liabilities
+  - Cash Flow - Financing
+  - Cash Flow - Investing
+  - Cash Flow - Operating
+  - Cash Flow Statement
+  - Disclosures
+  - Financial Ratios
+  - Income Statement
+  - Income Statement - IFRS 18
+  - Other Comprehensive Income
+  - Per Share Data
+  - Segment Reporting
+  - Statement of Changes in Equity
+  - Tax
+============================================================
+
+Terms in Map: 288
+Match: reserves_and_surplus Score: 75.5

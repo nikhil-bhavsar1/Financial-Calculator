@@ -34,7 +34,9 @@ FILE_EXPORTS = {
     "ratiosAndPerShare.ts": ["FINANCIAL_RATIOS_TERMS", "PER_SHARE_DATA_TERMS"],
     "taxDetails.ts": "TAX_DETAILS_TERMS",
     "ociAndSegments.ts": ["OTHER_COMPREHENSIVE_INCOME_TERMS", "SEGMENT_REPORTING_TERMS", "TAX_TERMS"],
+    "indAsSpecificTerms.ts": "IND_AS_SPECIFIC_TERMS",
 }
+
 
 
 def parse_typescript_array(content: str, array_name: str) -> list:

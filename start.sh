@@ -28,13 +28,20 @@ cleanup() {
     
     # Securely Wipe API Keys from settings.json
     echo -e "   🧹 Securely wiping API keys from storage..."
-    python3 -c "
+    # Use venv python if it exists, otherwise system python
+    PYTHON_BIN="python3"
+    if [ -f ".venv/bin/python3" ]; then
+        PYTHON_BIN=".venv/bin/python3"
+    fi
+    
+    $PYTHON_BIN -c "
 import json
 import os
 from pathlib import Path
 
-# Identify config directory (Linux/standard XDG)
-config_dir = Path.home() / '.local/share/com.financial.calculator'
+# Identify config directory (using identifier from tauri.conf.json)
+# Note: Linux path typically follows ~/.local/share/IDENTIFIER
+config_dir = Path.home() / '.local/share/com.yourcompany.yourapp'
 settings_file = config_dir / 'settings.json'
 
 if settings_file.exists():
@@ -115,11 +122,10 @@ echo -e "   ${GREEN}✅ Virtual environment activated ($(which python))${NC}"
 echo -e "   ${YELLOW}📦 Installing Python libraries...${NC}"
 pip install --upgrade pip --quiet
 
-# -----------------------------------------------------------------------------
 # CORE DEPENDENCIES (Required for basic functionality)
 # -----------------------------------------------------------------------------
 echo -e "   ${BLUE}   → Installing core dependencies...${NC}"
-CORE_LIBS="pymupdf pdfplumber pandas flask flask-cors pillow"
+CORE_LIBS="pymupdf pdfplumber pandas lxml beautifulsoup4 flask flask-cors pillow requests"
 pip install $CORE_LIBS --quiet
 echo -e "   ${GREEN}   ✓ Core dependencies installed${NC}"
 
@@ -142,7 +148,7 @@ fi
 # PARSER DEPENDENCIES (Additional parsing support)
 # -----------------------------------------------------------------------------
 echo -e "   ${BLUE}   → Installing parser dependencies...${NC}"
-PARSER_LIBS="openpyxl xlrd lxml beautifulsoup4"
+PARSER_LIBS="openpyxl xlrd"
 pip install $PARSER_LIBS --quiet
 echo -e "   ${GREEN}   ✓ Parser dependencies installed${NC}"
 
@@ -157,24 +163,31 @@ echo -e "   ${GREEN}✅ Python dependencies installed${NC}"
 # -----------------------------------------------------------------------------
 # OPTIONAL: HEAVY ML DEPENDENCIES (EasyOCR, Torch)
 # -----------------------------------------------------------------------------
-echo ""
-echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${YELLOW} OPTIONAL: Install ML-powered OCR (EasyOCR + PyTorch)?${NC}"
-echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "   EasyOCR provides better accuracy for complex scanned documents"
-echo "   but requires PyTorch (~2GB download, may take several minutes)."
-echo ""
-read -p "   Install EasyOCR + PyTorch? (y/N): " INSTALL_EASYOCR
-INSTALL_EASYOCR=${INSTALL_EASYOCR:-N}
 
-if [[ "$INSTALL_EASYOCR" =~ ^[Yy]$ ]]; then
-    echo -e "   ${BLUE}   → Installing EasyOCR and PyTorch (this may take a while)...${NC}"
-    pip install torch torchvision --quiet
-    pip install easyocr --quiet
-    echo -e "   ${GREEN}   ✓ EasyOCR installed successfully${NC}"
+# Check if EasyOCR is already installed
+echo -e "   ${BLUE}   → Checking for EasyOCR...${NC}"
+if python3 -c "import easyocr" 2>/dev/null; then
+    echo -e "   ${GREEN}   ✓ EasyOCR already installed${NC}"
 else
-    echo -e "   ${BLUE}   → Skipping EasyOCR installation${NC}"
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW} OPTIONAL: Install ML-powered OCR (EasyOCR + PyTorch)?${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "   EasyOCR provides better accuracy for complex scanned documents"
+    echo "   but requires PyTorch (~2GB download, may take several minutes)."
+    echo ""
+    read -p "   Install EasyOCR + PyTorch? (y/N): " INSTALL_EASYOCR
+    INSTALL_EASYOCR=${INSTALL_EASYOCR:-N}
+
+    if [[ "$INSTALL_EASYOCR" =~ ^[Yy]$ ]]; then
+        echo -e "   ${BLUE}   → Installing EasyOCR and PyTorch (this may take a while)...${NC}"
+        pip install torch torchvision --quiet
+        pip install easyocr --quiet
+        echo -e "   ${GREEN}   ✓ EasyOCR installed successfully${NC}"
+    else
+        echo -e "   ${BLUE}   → Skipping EasyOCR installation${NC}"
+    fi
 fi
 
 echo ""

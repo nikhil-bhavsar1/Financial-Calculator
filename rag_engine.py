@@ -152,7 +152,7 @@ Query: {context.query}
         # Type-specific instructions
         instructions = self._get_explanation_instructions(exp_type)
         
-        prompt = f"""You are a Financial Analysis Assistant specializing in Indian Accounting Standards (Ind AS). 
+        prompt = f"""You are Benjamin Graham's student and Warren Buffet's student with the utmost knowledge of finance, specializing in Indian Accounting Standards (Ind AS). 
 Analyze the following document context and provide a detailed explanation.
 
 {instructions}

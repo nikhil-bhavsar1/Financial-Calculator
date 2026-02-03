@@ -642,6 +642,153 @@ export const BALANCE_SHEET_ASSETS_TERMS: TermMapping[] = [
         }
     },
     {
+        id: 'intangible_assets_under_development',
+        category: 'Balance Sheet - Assets',
+        key: 'intangible_assets_under_development',
+        label: 'Intangible Assets Under Development',
+        keywords_indas: [
+            'intangible assets under development', 'software under development',
+            'development costs capitalized', 'software development cost',
+            'research and development capitalized', 'r&d capitalized',
+            'self-developed software', 'capitalized r&d'
+        ],
+        keywords_gaap: [
+            'development costs', 'capitalized software',
+            'research and development assets', 'self-developed intangible assets'
+        ],
+        keywords_ifrs: [
+            'development costs', 'intangible assets under development',
+            'internally generated intangible assets'
+        ],
+        related_standards: {
+            indas: ['IndAS 38'],
+            gaap: ['ASC 350'],
+            ifrs: ['IAS 38']
+        }
+    },
+    {
+        id: 'loans_to_directors',
+        category: 'Balance Sheet - Assets',
+        key: 'loans_to_directors',
+        label: 'Loans to Directors',
+        keywords_indas: [
+            'loans to directors', 'advances to directors',
+            'loans to key managerial personnel', 'advances to kmp',
+            'interest free loans to directors'
+        ],
+        keywords_gaap: [
+            'loans to officers', 'advances to executives',
+            'related party loans to management'
+        ],
+        keywords_ifrs: [
+            'loans to key management personnel', 'advances to directors'
+        ],
+        related_standards: {
+            indas: ['IndAS 109', 'IndAS 24'],
+            gaap: ['ASC 850'],
+            ifrs: ['IAS 24']
+        }
+    },
+    {
+        id: 'inter_corporate_deposits',
+        category: 'Balance Sheet - Assets',
+        key: 'inter_corporate_deposits',
+        label: 'Inter-Corporate Deposits',
+        keywords_indas: [
+            'inter-corporate deposits', 'inter corporate deposits', 'icd',
+            'deposits with other companies', 'deposits with corporates'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 109']
+        }
+    },
+    {
+        id: 'capital_advances',
+        category: 'Balance Sheet - Assets',
+        key: 'capital_advances',
+        label: 'Capital Advances',
+        keywords_indas: [
+            'capital advances', 'advances for capital goods',
+            'advances for machinery', 'advances for equipment'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 16']
+        }
+    },
+    {
+        id: 'balance_with_government',
+        category: 'Balance Sheet - Assets',
+        key: 'balance_with_government',
+        label: 'Balance with Government',
+        keywords_indas: [
+            'balance with government', 'balance with government authorities',
+            'deposits with government', 'government dues receivable'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 1']
+        }
+    },
+    {
+        id: 'export_incentives_receivable',
+        category: 'Balance Sheet - Assets',
+        key: 'export_incentives_receivable',
+        label: 'Export Incentives Receivable',
+        keywords_indas: [
+            'export incentives receivable', 'duty drawback receivable',
+            'incentives from government', 'export promotion incentives'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 1']
+        }
+    },
+    {
+        id: 'statutory_dues_receivable',
+        category: 'Balance Sheet - Assets',
+        key: 'statutory_dues_receivable',
+        label: 'Statutory Dues Receivable',
+        keywords_indas: [
+            'income tax refund receivable', 'tax refund receivable',
+            'gst refund receivable', 'tcs receivable',
+            'advance tax receivable', 'tax receivable'
+        ],
+        keywords_gaap: [
+            'income tax receivable', 'tax refund receivable'
+        ],
+        keywords_ifrs: [
+            'income tax receivable', 'current tax receivable'
+        ],
+        related_standards: {
+            indas: ['IndAS 12'],
+            gaap: ['ASC 740'],
+            ifrs: ['IAS 12']
+        }
+    },
+    {
+        id: 'securitisation_receivables',
+        category: 'Balance Sheet - Assets',
+        key: 'securitisation_receivables',
+        label: 'Securitisation Receivables',
+        keywords_indas: [
+            'securitisation receivables', 'securitized assets',
+            'assignment receivables', 'factored receivables'
+        ],
+        keywords_gaap: [
+            'securitized receivables', 'factored receivables'
+        ],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 109']
+        }
+    },
+    {
         id: 'total_assets',
         category: 'Balance Sheet - Assets',
         key: 'total_assets',

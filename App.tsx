@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Header } from './components/Header';
 import { DataTable } from './components/DataTable';
-import { Sidebar } from './components/Sidebar';
 import { UploadModal } from './components/UploadModal';
 import { MetricsDashboard } from './components/MetricsDashboard';
 import { CapturedDataGrid } from './components/CapturedDataGrid';
 import { SettingsModal } from './components/SettingsModal';
 import { KnowledgeBaseModal } from './components/KnowledgeBaseModal';
+import { CompanySearchModal } from './components/CompanySearchModal';
 import { DocumentViewer } from './components/DocumentViewer';
-import { FinancialItem, InputStatus, MissingInputItem, MetricGroup, AppSettings, TermMapping } from './types';
-import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, Database, Upload, AlertCircle } from 'lucide-react';
+import { FinancialItem, MetricGroup, AppSettings, TermMapping, CompanySearchResult, ScraperResponse } from './types';
+import { LayoutDashboard, FileText, Sparkles, Loader2, Activity, MessageSquare, Search, Send, BrainCircuit, Zap, FastForward, Database, Upload, AlertCircle, X, Building2, ExternalLink } from 'lucide-react';
 import { callAiProvider } from './services/geminiService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { LLMSettingsPanel } from './src/components/LLMSettingsPanel';
 // import { parseFileWithPython, calculateMetricsWithPython } from './services/pythonBridge';
-import { runPythonAnalysis, updateTerminologyMapping } from './services/tauriBridge';
+import { runPythonAnalysis, updateTerminologyMapping, calculateMetrics as calculateMetricsWithPython, searchCompanies, getCompanyDetails, startDbStreaming, stopDbStreaming } from './services/tauriBridge';
 // We still need metric definitions but calculation is now in Python sidecar via same call
 import { INPUT_METRICS, saveUserTerms, SYSTEM_TERM_IDS } from './library/metrics';
 import { generateAllMetricsAsItems, generateSampleMetricsData } from './library/allMetrics';
@@ -23,16 +25,15 @@ import { useSettings } from './src/stores/useSettings';
 
 const MOCK_DATA: FinancialItem[] = [];
 
-const MOCK_MISSING_INPUTS: MissingInputItem[] = [];
-
 function App() {
   const [activeTab, setActiveTab] = useState<'extracted' | 'metrics' | 'document' | 'captured'>('extracted');
   const [documentPage, setDocumentPage] = useState(1);
-  const [highlightLocation, setHighlightLocation] = useState<{ page: number, text: string } | null>(null);
+  const [highlightLocation, setHighlightLocation] = useState<{ page: number, text: string, rawLine?: string } | null>(null);
 
   const [documentTitle, setDocumentTitle] = useState<string | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisMode, setAnalysisMode] = useState<'deep-summary' | 'analyze' | 'explain'>('explain');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isKbOpen, setIsKbOpen] = useState(false);
@@ -41,8 +42,6 @@ function App() {
   const [metricsGroups, setMetricsGroups] = useState<MetricGroup[]>(generateAllMetricsAsItems());
   const [useSampleData, setUseSampleData] = useState(false);
   const [mappings, setMappings] = useState<TermMapping[]>(INPUT_METRICS);
-  const [missingInputs, setMissingInputs] = useState<MissingInputItem[]>([]);
-
   /* 
    * Document Context
    */
@@ -50,18 +49,18 @@ function App() {
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [fileType, setFileType] = useState<'pdf' | 'image' | 'text'>('text');
   const [generalQuery, setGeneralQuery] = useState("");
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [epsType, setEpsType] = useState<'basic' | 'diluted'>('diluted');
 
   /* 
    * Initialize with EMPTY strings so the default fallbacks in UI ("Current Year") 
    * are irrelevant until actual data is loaded or user hasn't uploaded.
-   * However, standard behavior is to default to "Current Year" if nothing is found.
    */
   const [yearLabels, setYearLabels] = useState<{ current: string; previous: string }>({
-    current: "", // Start empty to avoid "defaults" showing up when they shouldn't
+    current: "",
     previous: ""
   });
+
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
 
   // Set default pinned metrics that will appear on the Summary Page
   // Set default pinned metrics that will appear on the Summary Page
@@ -82,6 +81,16 @@ function App() {
   } | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isProcessingDialogExpanded, setIsProcessingDialogExpanded] = useState(false);
+
+  // Company Search State
+  const [isCompanySearchOpen, setIsCompanySearchOpen] = useState(false);
+  const [companySearchQuery, setCompanySearchQuery] = useState('');
+  const [companySearchResults, setCompanySearchResults] = useState<CompanySearchResult[]>([]);
+  const [companySearchError, setCompanySearchError] = useState<string | null>(null);
+  const [isSearchingCompanies, setIsSearchingCompanies] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
+  const [searchExchange, setSearchExchange] = useState<'NSE' | 'BSE' | 'BOTH'>('BOTH');
 
   // Live elapsed time timer
   useEffect(() => {
@@ -100,29 +109,63 @@ function App() {
     };
   }, [isPythonProcessing, processingProgress?.startTime]);
 
-  // Listen for PDF progress events from Rust backend
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
-    if (isPythonProcessing) {
+    // Only listen for Tauri events when running in Tauri environment
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+    if (isTauri) {
       listen('pdf-progress', (event) => {
         const progress = event.payload as {
           currentPage: number;
           totalPages: number;
           percentage: number;
           message: string;
+          partialItems?: FinancialItem[];
+          partialText?: string;
         };
 
         setProcessingProgress(prev => {
-          if (!prev) return null;
+          // Allow creating progress even if prev is null (initial event)
+          const current = prev || {
+            fileName: 'Processing...',
+            percentage: 0,
+            currentPage: 0,
+            totalPages: 0,
+            status: 'Initializing...',
+            startTime: Date.now()
+          };
+
           return {
-            ...prev,
+            ...current,
             currentPage: progress.currentPage,
             totalPages: progress.totalPages,
             percentage: progress.percentage,
             status: progress.message
           };
         });
+
+        // Update UI with partial data as it arrives
+        if (progress.partialItems && progress.partialItems.length > 0) {
+          setTableData(prev => {
+            const newMap = new Map(prev.map(i => [i.id, i]));
+            progress.partialItems!.forEach(item => {
+              newMap.set(item.id, item);
+            });
+            return Array.from(newMap.values());
+          });
+        }
+
+        if (progress.partialText) {
+          setRawDocumentContent(prev => {
+            const pageMarker = `\n--- Page ${progress.currentPage} ---\n`;
+            if (prev.includes(pageMarker)) {
+              // Page already added, skip
+              return prev;
+            }
+            return prev + `\n\n\n${pageMarker}${progress.partialText}`;
+          });
+        }
       }).then(fn => {
         unlisten = fn;
       });
@@ -131,7 +174,48 @@ function App() {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [isPythonProcessing]);
+  }, []);
+
+  // Listen for database streaming updates from SQLite backend
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    // Only listen for Tauri events when running in Tauri environment
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI__;
+    if (!isTauri) {
+      return;
+    }
+
+    listen('db-update', (event) => {
+      const dbUpdate = event.payload as {
+        action: 'initial' | 'incremental';
+        table: string;
+        data: FinancialItem[];
+      };
+
+      console.log('[App] Database update received:', dbUpdate);
+
+      if (dbUpdate.action === 'initial') {
+        // Initial data load - replace all
+        setTableData(dbUpdate.data);
+      } else if (dbUpdate.action === 'incremental') {
+        // Incremental update - append new items
+        setTableData(prev => {
+          const newMap = new Map(prev.map(i => [i.id, i]));
+          dbUpdate.data.forEach(item => {
+            newMap.set(item.id, item);
+          });
+          return Array.from(newMap.values());
+        });
+      }
+    }).then(fn => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Toggle sample data
   const toggleSampleData = () => {
@@ -146,6 +230,8 @@ function App() {
 
   // Contextual Selection AI
   const [selection, setSelection] = useState<{ text: string, x: number, y: number } | null>(null);
+
+
 
   /* 
    * Initialize Global Settings
@@ -269,112 +355,372 @@ function App() {
   }, [mappings]);
 
   // calculateMetrics moved to Python
-  const calculateMetrics = async (data: FinancialItem[], currentMappings: TermMapping[]) => {
-    // If we need to re-calculate on mapping change, we need a new route in `api.py`
-    // For now, we stub this or alert user.
-    console.log("Re-calculating metrics... (This requires Python round-trip now)");
-    // TODO: Implement 'recalculate' command in api.py receiving data + mappings
+  // calculateMetrics uses Python backend for accurate formula execution
+  const calculateMetrics = async (data: FinancialItem[], _currentMappings?: TermMapping[]) => {
+    console.log("Recalculating metrics via Python backend...");
+    try {
+      const results = await calculateMetricsWithPython(data);
+      if (results && results.length > 0) {
+        setMetricsGroups(results);
+      }
+    } catch (error) {
+      console.error("Failed to recalculate metrics:", error);
+    }
   };
 
-  // Identify Missing Inputs dynamically
-  useEffect(() => {
-    // If using sample data and it hasn't been modified, keep mock missing inputs
-    if (useSampleData && tableData === MOCK_DATA) {
-      setMissingInputs(MOCK_MISSING_INPUTS);
-      return;
-    }
+  // Identify Missing Inputs dynamically - REMOVED (Sidebar legacy)
 
-    const currentMappings = mappings.length > 0 ? mappings : INPUT_METRICS;
-    const foundIds = new Set(tableData.map(item => item.id));
-
-    // Filter out items that are present in the table data
-    // We only want items that are completely MISSING or explicitly flagged as suspicious
-    const dynamicMissing: MissingInputItem[] = currentMappings
-      .filter(m => !foundIds.has(m.key))
-      .map(m => ({
-        id: m.key,
-        label: m.label,
-        value: '',
-        status: InputStatus.NOT_FOUND,
-        confidence: 0
-      }));
-
-    // Also check for items present but with 0 values (often extraction failures)
-    // or items with warnings
-    tableData.forEach(item => {
-      if (item.hasWarning) {
-        dynamicMissing.unshift({
-          id: item.id,
-          label: item.label,
-          value: item.currentYear?.toString() || '',
-          status: InputStatus.LOW_CONFIDENCE,
-          confidence: 20
-        });
-      } else if (item.currentYear === 0 && !item.label.toLowerCase().includes('dividend')) {
-        // Zero values for non-dividend items are suspicious
-        dynamicMissing.push({
-          id: item.id,
-          label: item.label,
-          value: '0',
-          status: InputStatus.LOW_CONFIDENCE,
-          confidence: 50
-        });
-      }
-    });
-
-    // Sort: Low Confidence first, then Not Found
-    dynamicMissing.sort((a, b) => {
-      if (a.status === b.status) return 0;
-      return a.status === InputStatus.LOW_CONFIDENCE ? -1 : 1;
-    });
-
-    setMissingInputs(dynamicMissing);
-  }, [tableData, mappings, useSampleData]);
-
-  const handleAiAnalysis = async (promptOverride?: string, complexity: 'fast' | 'standard' | 'thinking' = 'standard') => {
+  const handleDeepSummaryAnalysis = async (pageContext: number) => {
     if (!settings.enableAI) return;
 
     setIsAnalyzing(true);
-    const prompt = promptOverride || "Analyze the most significant growth areas and concerns in this financial data.";
-    // Pass rawDocumentContent to AI for full context awareness
-    const result = await callAiProvider(prompt, settings, tableData, rawDocumentContent, complexity);
+    setAnalysisMode('deep-summary');
+    // Initialize with a loading state that shows progress
+    setAiInsight("⚡ **Initializing Deep Financial Analysis...**\n\n*Phase 1/3: Analyzing Page Structure & Terms...*");
+
+    try {
+      // 1. Context Extraction (Same logic as handleAiAnalysis)
+      let contentToAnalyze = rawDocumentContent;
+      if (pageContext && rawDocumentContent) {
+        const pageMarkerRegex = new RegExp(`--- Page\\s+${pageContext}\\s+---([\\s\\S]*?)(?=--- Page\\s+\\d+\\s+---|$)`, 'i');
+        const pageMatch = rawDocumentContent.match(pageMarkerRegex);
+        if (pageMatch && pageMatch[1]) {
+          contentToAnalyze = `--- Page ${pageContext} ---${pageMatch[1]}`;
+        }
+      }
+
+      // 2. Define Prompts for Chained Execution
+      const promptPart1 = `Analyze Page ${pageContext} and provide the following sections.
+      
+## 📄 PAGE OVERVIEW
+- **Content Type**: (e.g., Balance Sheet, P&L, Notes, Disclosures, Narrative)  
+- **Main Topic/Section**: What is this page about?
+
+## 📚 TERMS & CONCEPTS
+Present ALL financial terms found on this page in a **Markdown Table**:
+| Term | Definition (1-2 lines) | Criticality |
+|------|------------------------|-------------|
+| ... | ... | Critical / Supplementary |
+
+**CONSTRAINT**: ONLY return these two sections. Do not add anything else.`;
+
+      const promptPart2 = `Analyze Page ${pageContext} and provide the Data Extraction and Financial Impact sections.
+
+## 📊 DATA EXTRACTION
+Extract ALL numbers, values, and figures from this page. Present in a **clean Markdown Table**:
+| Metric | Current Period | Prior Period | Change (Abs) | Change (%) | Trend |
+|--------|----------------|--------------|--------------|------------|-------|
+| ... | ... | ... | ... | ... | ↑ / ↓ / → |
+
+## 📈 FINANCIAL IMPACT
+For the KEY metrics on this page, explain in a **Markdown Table**:
+| Metric | Is Increase Good/Bad? | Is Decrease Good/Bad? | What It Indicates |
+|--------|----------------------|----------------------|-------------------|
+| ... | ... | ... | ... |
+
+**CONSTRAINT**: ONLY return these two sections. Focus on accuracy of numbers.`;
+
+      const promptPart3 = `Analyze Page ${pageContext} using the APEX System.
+
+You are APEX, an elite financial intelligence combining analytical rigor, patient value-seeking wisdom, contrarian zero-to-one thinking, valuation mastery, and mental-model genius.
+
+## CORE IDENTITY
+You are a sophisticated financial advisor, investor, and strategic thinker with decades of synthesized market wisdom. You speak with authority, precision, and intellectual depth while remaining accessible.
+
+## PHILOSOPHICAL FRAMEWORK
+### Fundamental Value Foundation
+- Emphasize margin of safety in all investment analysis
+- Distinguish clearly between INVESTMENT and SPECULATION
+- Focus on intrinsic value calculations using quantitative metrics
+- Advocate for disciplined, emotion-free decision making
+- Reference: P/E ratios, book value, debt-to-equity, current ratios
+- Treat Mr. Market as a servant, not a guide
+
+### Competitive Advantage Lens
+- Seek companies with durable competitive advantages ("moats")
+- Prioritize management quality and integrity
+- Think in decades, not quarters
+- Prefer wonderful companies at fair prices over fair companies at wonderful prices
+- Emphasize circle of competence—know what you don't know
+- Focus on owner earnings and return on equity
+- "Be fearful when others are greedy, greedy when others are fearful"
+
+### Contrarian Innovation Edge
+- Challenge consensus thinking—ask "What important truth do few people agree with you on?"
+- Identify potential monopolies and category-defining companies
+- Evaluate founders and their definite optimism
+- Consider power law dynamics—few investments drive most returns
+- Look for secrets: hidden truths about technology and markets
+- Zero-to-one thinking over incremental improvements
+- Assess competitive dynamics: Is this a "last mover" advantage?
+
+### Valuation Precision
+- "The story must match the numbers"—narrative drives valuation inputs
+- Apply DCF rigor: growth rates, reinvestment, cost of capital, terminal value
+- Context matters: value drivers differ by industry, lifecycle stage, geography
+- Think probabilistically—value as distribution, not single point
+- Distinguish between price momentum and intrinsic value creation
+- Break down value: operating assets, cash, debt, options, cross-holdings
+- Update valuations as story evolves; thesis flexibility is strength
+
+### Mental Models & Inversion
+- Apply mental models from multiple disciplines (psychology, physics, biology)
+- Invert, always invert—"Tell me where I'll die so I won't go there"
+- Avoid stupidity rather than seeking brilliance
+- Consider opportunity cost in every allocation decision
+- "Take a simple idea and take it seriously"
+- Watch for incentive-driven behavior and cognitive biases
+- Patience: "The big money is in the waiting"
+
+## RESPONSE FRAMEWORK
+### For Stock/Company Analysis:
+1. **Fundamentals Screen**: Quantitative fundamentals check
+2. **Intrinsic Valuation**: DCF narrative, value drivers, probabilistic range
+3. **Moat Filter**: Moat assessment, management quality, long-term economics
+4. **Innovation Test**: Is this creating new value? Monopoly potential? Contrarian angle?
+5. **Inversion Check**: Invert the thesis—what kills this investment?
+6. **Synthesis**: Unified recommendation with confidence level
+
+## ETHICAL BOUNDARIES
+- Never guarantee returns or provide false certainty
+- Always note that past performance ≠ future results
+- Recommend professional financial advice for personal decisions
+- Disclose limitations of analysis (data recency, incomplete information)
+- Distinguish between education and personalized financial advice
+- Avoid pump-and-dump language or market manipulation
+- Flag speculative positions clearly as such
+
+## OUTPUT FORMAT
+When analyzing investments, structure as:
+
+📊 FUNDAMENTAL ANALYSIS
+[Quantitative metrics and value assessment]
+
+📈 VALUATION & NARRATIVE
+[DCF narrative, value drivers, fair value range with assumptions]
+
+🏰 MOAT & QUALITY
+[Competitive advantages, management, long-term economics]
+
+🚀 CONTRARIAN VIEW
+[Innovation potential, secrets, paradigm shift analysis]
+
+🔄 THESIS INVERSION
+[What could go wrong? Cognitive biases at play? Kill scenarios]
+
+⚖️ SYNTHESIS & VERDICT
+[Unified assessment with confidence level: LOW/MEDIUM/HIGH/CONVICTION]
+
+⚠️ KEY RISKS
+[Primary concerns and what would change the thesis]
+
+**CONSTRAINT**: Adopt the APEX persona: authoritative, insightful, and deep. End your response with "[ANALYSIS_COMPLETE]" to signal completion.`;
+
+
+      // 3. Execute Phase 1
+      const result1 = await callAiProvider(promptPart1, settings, tableData, contentToAnalyze, 'thinking');
+
+      // Update UI with Part 1 and loading for Part 2
+      const currentInsight1 = result1 + "\n\n---\n\n";
+      setAiInsight(currentInsight1 + "⏳ *Waiting briefly to respect rate limits...*\n\n" + "*Phase 2/3: Extracting Data & Analyzing Impact...*");
+
+      // SMART MANAGEMENT: Delay 2s to avoid rate limits
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 4. Execute Phase 2
+      const result2 = await callAiProvider(promptPart2, settings, tableData, contentToAnalyze, 'thinking');
+
+      // Update UI with Part 1 + 2 and loading for Part 3
+      const currentInsight2 = currentInsight1 + result2 + "\n\n---\n\n";
+      setAiInsight(currentInsight2 + "⏳ *Waiting briefly...*\n\n" + "*Phase 3/3: Synthesizing APEX Investor Insights...*");
+
+      // SMART MANAGEMENT: Delay 2s
+      await new Promise(r => setTimeout(r, 2000));
+
+      // 5. Execute Phase 3
+      const result3 = await callAiProvider(promptPart3, settings, tableData, contentToAnalyze, 'thinking');
+
+      // Final Result
+      setAiInsight(currentInsight2 + result3);
+
+    } catch (error) {
+      console.error("Deep Summary Failed:", error);
+      setAiInsight(prev => typeof prev === 'string' ? prev + "\n\n❌ **Analysis interrupted due to error.** Please try again." : "Error occurred.");
+    } finally {
+      setIsAnalyzing(false);
+      setSelection(null);
+    }
+  };
+
+  const handleContinueAnalysis = async () => {
+    if (!aiInsight || typeof aiInsight !== 'string') return;
+
+    setIsAnalyzing(true);
+    const previousContent = aiInsight;
+    // Take the last 500 characters as context for continuation
+    const contextTail = previousContent.slice(-500);
+
+    try {
+      const continuationPrompt = `The following analysis was cut off. Please continue and complete the thought immediately, starting exactly where it left off. Do not repeat the beginning.
+
+        PREVIOUS CONTEXT (TAIL):
+        "${contextTail}"
+
+        INSTRUCTIONS:
+        1. Complete the cut-off sentence/section.
+        2. Finish the remaining sections of the standard APEX analysis (Strategy, Verdict, Example) if missing.
+        3. End with "[ANALYSIS_COMPLETE]".
+        `;
+
+      const continuation = await callAiProvider(continuationPrompt, settings, undefined, undefined, 'thinking');
+      setAiInsight(previousContent + " " + continuation);
+    } catch (error) {
+      console.error("Continuation Failed:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleAiAnalysis = async (promptOverride?: string, complexity: 'fast' | 'standard' | 'thinking' = 'standard', pageContext?: number) => {
+    if (!settings.enableAI) return;
+
+    setIsAnalyzing(true);
+    setAnalysisMode(complexity === 'thinking' ? 'analyze' : 'explain');
+    let contextPrompt = "";
+    let contentToAnalyze = rawDocumentContent;
+    // If pageContext is provided, extract only that page's content
+    if (pageContext && rawDocumentContent) {
+      // Use a more robust regex that ignores extra spaces and handles case insensitivity
+      const pageMarkerRegex = new RegExp(`--- Page\\s+${pageContext}\\s+---([\\s\\S]*?)(?=--- Page\\s+\\d+\\s+---|$)`, 'i');
+      const pageMatch = rawDocumentContent.match(pageMarkerRegex);
+      if (pageMatch && pageMatch[1]) {
+        contentToAnalyze = `--- Page ${pageContext} ---${pageMatch[1]}`;
+        contextPrompt = `\n[CONTEXT: Analyzing ONLY Page ${pageContext}. The following is the extracted content from this specific page.]\n`;
+        console.log(`Extracted Page ${pageContext} content, length: ${contentToAnalyze.length}`);
+      } else {
+        // Fallback: Check if markers use different spacing or format
+        const simpleRegex = new RegExp(`Page\\s+${pageContext}\\b`, 'i');
+        if (simpleRegex.test(rawDocumentContent)) {
+          console.log(`Found "Page ${pageContext}" marker with simple regex, trying alternative extraction.`);
+          // We might want to try to find the text between Page X and Page X+1 manually
+        }
+        console.log(`Could not extract Page ${pageContext} strictly, falling back to full context (truncated).`);
+      }
+    }
+
+    // Local Search Strategy: Locate selection in document content
+    if (selection && rawDocumentContent && !pageContext) {
+      // Normalize spaces for better matching
+      const searchStr = selection.text.trim();
+      const content = rawDocumentContent;
+
+      // Find all occurrences
+      const occurrences: number[] = [];
+      let pos = content.indexOf(searchStr);
+      while (pos !== -1) {
+        // Search backwards for page marker
+        const preceedingText = content.substring(0, pos);
+        const pageMatches = [...preceedingText.matchAll(/--- Page (\d+) ---/g)];
+        if (pageMatches.length > 0) {
+          const lastMatch = pageMatches[pageMatches.length - 1];
+          occurrences.push(parseInt(lastMatch[1]));
+        }
+        pos = content.indexOf(searchStr, pos + 1);
+      }
+
+      if (occurrences.length > 0) {
+        const uniquePages = Array.from(new Set(occurrences)).slice(0, 3); // Top 3 pages
+        contextPrompt = `\n[CONTEXT: The user selected text "${searchStr.substring(0, 50)}..." which was found on Page(s) ${uniquePages.join(', ')} of the document. Focus your answer on these pages.]\n`;
+
+        // CRITICAL FIX: Extract CONTENT of these specific pages to avoid truncation
+        let extractedLocalContext = "";
+        uniquePages.forEach(p => {
+          const pageMarkerRegex = new RegExp(`--- Page\\s+${p}\\s+---([\\s\\S]*?)(?=--- Page\\s+\\d+\\s+---|$)`, 'i');
+          const match = rawDocumentContent.match(pageMarkerRegex);
+          if (match && match[1]) {
+            extractedLocalContext += `\n--- Page ${p} ---\n${match[1]}\n`;
+          }
+        });
+
+        if (extractedLocalContext.length > 100) {
+          contentToAnalyze = extractedLocalContext;
+          console.log(`Local Search: Extracted ${contentToAnalyze.length} chars from Pages ${uniquePages.join(', ')}`);
+        }
+
+        console.log("Local Search Context:", contextPrompt);
+      } else {
+        console.log("Local Search: Text not found exactly in raw content (might be OCR mismatch).");
+      }
+    }
+
+    const basePrompt = promptOverride || `You are APEX, an elite financial analyst combining quantitative rigor, patient value investing, contrarian innovation thinking, valuation precision, and mental-model wisdom.
+
+## CORE PRINCIPLES
+
+**Fundamentals**: Margin of safety, intrinsic value, emotion-free analysis
+**Valuation**: Story must match numbers, DCF rigor, probabilistic thinking
+**Moat**: Durable moats, quality management, think in decades
+**Edge**: Challenge consensus, find secrets, monopoly potential
+**Inversion**: Mental models, invert always, avoid stupidity
+
+## RESPONSE STYLE
+
+- Precise, authoritative, accessible
+- Ground claims in data and principles
+- Acknowledge uncertainty honestly
+- Use memorable analogies
+- Brief unless depth requested
+
+## QUICK ANALYSIS FORMAT
+
+💰 VALUE: [Intrinsic value vs price assessment]
+📈 STORY: [Narrative-numbers alignment check]
+🏰 MOAT: [Competitive advantage strength]
+🚀 EDGE: [Contrarian/innovation angle]
+🔄 INVERSION: [What kills this thesis?]
+📍 VERDICT: [BUY/HOLD/AVOID + confidence level]
+⚠️ RISK: [Primary concern]
+
+## RULES
+
+- Never guarantee returns
+- Distinguish investing from speculation
+- Flag speculative positions clearly
+- Recommend professional advice for personal decisions
+- Note data/knowledge limitations
+
+Blend philosophies based on context: stable dividend stocks lean on Value/Moat; disruptive tech leans on Edge; complex stories need Valuation precision. Every thesis gets Inversion test. True insight is knowing the right weight.
+
+Analyze the provided data using this QUICK ANALYSIS FORMAT.`;
+    const finalPrompt = basePrompt + contextPrompt;
+
+    // Pass contentToAnalyze (either page-specific or full) to AI
+    const result = await callAiProvider(finalPrompt, settings, tableData, contentToAnalyze, complexity);
     setAiInsight(result);
     setIsAnalyzing(false);
     setSelection(null);
   };
 
-  // Handler for Sidebar AI Assist - Finding missing inputs
-  const handleMissingInputAssist = async (label: string): Promise<string> => {
-    if (!settings.enableAI) return "AI features disabled.";
-    if (!rawDocumentContent) return "No document content available. Please upload a file.";
 
-    const prompt = `
-      The user is looking for the value of "${label}" in the financial document.
-      Please locate this value or the section where it should be found.
-      Quote the specific text or table row from the document that helps locate it.
-      Keep it short (under 50 words).
-    `;
-    // Use 'fast' complexity for low latency responsiveness
-    return await callAiProvider(prompt, settings, [], rawDocumentContent, 'fast');
-  };
+  // Floating PDF State
+  const [floatingPdf, setFloatingPdf] = useState<{ isOpen: boolean, page: number } | null>(null);
 
-  // Handle Source Click from Captured Data Grid
+  // Handle Source Click from Captured Data Grid - Updated for Floating Viewer
   const handleSourceClick = (item: FinancialItem) => {
     if (item.sourcePage) {
       // Extract number from "Page 42" or just "42"
-      const match = safeString(item.sourcePage).match(/(\d+)/);
+      // Remove "Page" text just in case it's passed differently
+      const text = String(item.sourcePage).replace(/page/i, '').trim();
+      const match = text.match(/(\d+)/);
+
       if (match) {
         const pageNum = parseInt(match[1]);
-        if (!isNaN(pageNum)) {
-          setDocumentPage(pageNum);
-
-          // Set highlight location to trigger search in DocumentViewer
-          setHighlightLocation({
-            page: pageNum,
-            text: item.label // Search for the label text as a proxy for the line
+        if (!isNaN(pageNum) && pageNum > 0) {
+          setFloatingPdf({
+            isOpen: true,
+            page: pageNum
           });
-
-          setActiveTab('document');
+          // Do NOT change activeTab - stay on current view
         }
       }
     }
@@ -418,6 +764,13 @@ function App() {
    * Now accepts 'content' which is the file content (base64 encoded for binary files)
    */
   const handleUploadSuccess = async (filePath: string, type: string, fileName: string, content?: string) => {
+    // Clear transient previous document state but DON'T clear tableData if we want to merge
+    setRawDocumentContent('');
+    // setTableData([]); // REMOVED: Keep existing data for merging
+    setDocumentPage(1);
+    setAiInsight(null);
+    setMetricsGroups(generateAllMetricsAsItems()); // Show skeleton metrics with placeholders
+
     setIsPythonProcessing(true);
     setUploadError(null); // Clear previous errors
     setProcessingProgress({
@@ -433,12 +786,10 @@ function App() {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
     if (ext === 'pdf') {
       const url = convertFileSrc(filePath);
-      console.log("[Upload] Asset URL (PDF):", url);
       setFileUrl(url);
       setFileType('pdf');
     } else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg'].includes(ext)) {
       const url = convertFileSrc(filePath);
-      console.log("[Upload] Asset URL (Image):", url);
       setFileUrl(url);
       setFileType('image');
     } else {
@@ -450,10 +801,8 @@ function App() {
     const dynamicTitle = extractTitleFromFilename(fileName);
     setDocumentTitle(dynamicTitle);
 
-    console.log(`[Upload] Processing file via Tauri: ${filePath}, content: ${content ? content.length + ' chars' : 'none'}`);
-
     try {
-      // Call Python Sidecar - pass content and fileName for proper handling
+      // Call Python Sidecar
       const response = await runPythonAnalysis(filePath, content, fileName);
       console.log("[Upload] Python response:", response);
 
@@ -487,21 +836,13 @@ function App() {
           documentText = (extractedData as any).text;
         }
 
-        // Append document content for viewer
+        // Set document content for viewer (replace, not append)
         if (documentText.trim()) {
-          setRawDocumentContent(prev => {
-            if (!prev) return documentText;
-            // Check if this file is already in content to avoid dupes (rough check)
-            if (prev.includes(fileName)) return prev;
-            return prev + `\n\n\n=================================================================\n=== FILE: ${fileName} ===\n=================================================================\n\n` + documentText;
-          });
+          setRawDocumentContent(documentText);
         } else {
-          // Append placeholder
-          setRawDocumentContent(prev => {
-            const msg = `File loaded: ${fileName}\nPath: ${filePath}\n\n[No text content extracted - check if document is scanned/image-based]`;
-            if (!prev) return msg;
-            return prev + `\n\n\n=================================================================\n=== FILE: ${fileName} ===\n=================================================================\n\n` + msg;
-          });
+          // Set placeholder
+          const msg = `File loaded: ${fileName}\nPath: ${filePath}\n\n[No text content extracted - check if document is scanned/image-based]`;
+          setRawDocumentContent(msg);
         }
 
         if (items.length > 0) {
@@ -517,9 +858,34 @@ function App() {
           setTableData(prev => {
             const newMap = new Map(prev.map(i => [i.id, i]));
             items.forEach(item => {
-              newMap.set(item.id, item); // Overwrite/add
+              const existing = newMap.get(item.id);
+              if (existing) {
+                // Merge item, prioritizing new values but keeping existing allYears coverage
+                newMap.set(item.id, {
+                  ...existing,
+                  ...item,
+                  allYears: { ...(existing.allYears || {}), ...(item.allYears || {}) }
+                });
+              } else {
+                newMap.set(item.id, item);
+              }
             });
             return Array.from(newMap.values());
+          });
+
+          // Update available years from all items
+          setAvailableYears(prev => {
+            const years = new Set(prev);
+            items.forEach(item => {
+              if (item.allYears) {
+                Object.keys(item.allYears).forEach(y => {
+                  if (y && y.trim() !== '') years.add(y);
+                });
+              }
+            });
+
+            // Re-sort years: newest first (chronological sort if they are dates or years)
+            return Array.from(years).sort((a, b) => b.localeCompare(a));
           });
 
           setAiInsight(null);
@@ -529,8 +895,7 @@ function App() {
             try {
               const parsedMetrics = typeof response.metrics === 'string' ? JSON.parse(response.metrics) : response.metrics;
               if (Array.isArray(parsedMetrics) && parsedMetrics.length > 0) {
-                // Merge metrics?
-                setMetricsGroups(parsedMetrics); // Metrics are usually global/recalculated, so replace is somewhat safer/easier for now.
+                setMetricsGroups(parsedMetrics);
               }
             } catch (e) {
               console.error("Error parsing metrics JSON", e);
@@ -538,14 +903,12 @@ function App() {
           }
 
           // Check for year labels in metadata
-          if (response.metadata) {
-            const meta = response.metadata as any;
-            if (meta.currentYear || meta.previousYear) {
-              setYearLabels({
-                current: meta.currentYear || '',
-                previous: meta.previousYear || ''
-              });
-            }
+          const meta = (extractedData as any).metadata || {};
+          if (meta.currentYear || meta.previousYear) {
+            setYearLabels({
+              current: meta.currentYear || '',
+              previous: meta.previousYear || ''
+            });
           }
 
         } else {
@@ -557,12 +920,9 @@ function App() {
         console.error("[Upload] Python Error:", errorMessage);
         setUploadError(`Failed to parse ${fileName}: ${errorMessage}`);
 
-        // Still set document content to show what we have
-        setRawDocumentContent(prev => {
-          const errorMsg = `Error processing file: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
-          if (!prev) return errorMsg;
-          return prev + `\n\n\n=================================================================\n=== ERROR: ${fileName} ===\n=================================================================\n\n` + errorMsg;
-        });
+        // Set error message in document content
+        const errorMsg = `Error processing file: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
+        setRawDocumentContent(errorMsg);
       }
 
     } catch (error) {
@@ -571,114 +931,11 @@ function App() {
       setUploadError(`Failed to process ${fileName}: ${errorMessage}`);
 
       // Set error in document content
-      setRawDocumentContent(prev => {
-        const errorMsg = `Failed to process: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
-        if (!prev) return errorMsg;
-        return prev + `\n\n\n=================================================================\n=== ERROR: ${fileName} ===\n=================================================================\n\n` + errorMsg;
-      });
+      const errorMsg = `Failed to process: ${fileName}\nPath: ${filePath}\n\nError: ${errorMessage}`;
+      setRawDocumentContent(errorMsg);
     } finally {
       setIsPythonProcessing(false);
       setProcessingProgress(null);
-    }
-  };
-
-  const handleInputConfirm = (confirmedInputs: MissingInputItem[]) => {
-    // 1. Filter out items that are still empty or skipped
-    // Allow if AT LEAST one value is present in 'values' or legacy 'value'
-    const validInputs = confirmedInputs.filter(item => {
-      if (item.status === InputStatus.SKIPPED) return false;
-      const hasLegacyValue = item.value && item.value.trim() !== '';
-      const hasNewValues = item.values && (item.values.current.trim() !== '' || item.values.previous.trim() !== '');
-      return hasLegacyValue || hasNewValues;
-    });
-
-    if (validInputs.length === 0) {
-      // Slient return - prevent annoying popups
-      return;
-    }
-
-    // 2. Merge into Table Data
-    const newTableData = [...tableData];
-    let updatesCount = 0;
-
-    validInputs.forEach(input => {
-      const existingIndex = newTableData.findIndex(row => row.id === input.id);
-
-      // Determine values to apply
-      let valCurrent = 0;
-      let valPrevious = 0;
-      let updateCurrent = false;
-      let updatePrevious = false;
-
-      if (input.values) {
-        // Dual value mode
-        if (input.values.current.trim() !== '') {
-          valCurrent = parseFloat(input.values.current.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
-          if (!isNaN(valCurrent)) updateCurrent = true;
-        }
-        if (input.values.previous.trim() !== '') {
-          valPrevious = parseFloat(input.values.previous.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
-          if (!isNaN(valPrevious)) updatePrevious = true;
-        }
-      } else {
-        // Legacy mode
-        const cleanVal = parseFloat(input.value.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
-        if (!isNaN(cleanVal)) {
-          if (input.targetYear === 'previous') {
-            valPrevious = cleanVal;
-            updatePrevious = true;
-          } else {
-            valCurrent = cleanVal; // Default to current
-            updateCurrent = true;
-          }
-        }
-      }
-
-      if (existingIndex >= 0) {
-        // Update existing item
-        const item = newTableData[existingIndex];
-        const updatedItem = { ...item };
-
-        if (updateCurrent) updatedItem.currentYear = valCurrent;
-        if (updatePrevious) updatedItem.previousYear = valPrevious;
-
-        // Recalculate variation
-        updatedItem.variation = updatedItem.currentYear - updatedItem.previousYear;
-        updatedItem.variationPercent = updatedItem.previousYear !== 0
-          ? (updatedItem.variation / updatedItem.previousYear * 100)
-          : 0;
-
-        updatedItem.hasWarning = false;
-        newTableData[existingIndex] = updatedItem;
-        updatesCount++;
-
-      } else {
-        // Add new item
-        if (updateCurrent || updatePrevious) {
-          const variation = valCurrent - valPrevious;
-          const variationPercent = valPrevious !== 0 ? (variation / valPrevious * 100) : 0;
-
-          newTableData.push({
-            id: input.id,
-            label: input.label,
-            currentYear: valCurrent,
-            previousYear: valPrevious,
-            variation,
-            variationPercent,
-            sourcePage: 'Manual',
-            isImportant: true
-          });
-          updatesCount++;
-        }
-      }
-    });
-
-    if (updatesCount > 0) {
-      setTableData(newTableData);
-      setMissingInputs(confirmedInputs); // Keep state in sync
-
-      // Recalculate metrics with new data
-      calculateMetrics(newTableData, mappings);
     }
   };
 
@@ -728,7 +985,7 @@ function App() {
 
     if (activeTab === 'metrics') {
       return (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
           {/* Sample Data Toggle */}
           <div className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -760,20 +1017,23 @@ function App() {
 
 
     if (activeTab === 'captured') {
-      // Merge missingInputs into tableData for display so they appear in the grid
+      // Merge truly missing inputs (not in tableData) into display
       const mergedData = [...tableData];
-      missingInputs.forEach(m => {
-        // Only add if not already present (avoid duplicates) and not explicitly skipped
-        if (!mergedData.some(d => d.id === m.id) && m.status !== InputStatus.SKIPPED) {
+      const existingIds = new Set(mergedData.map(d => d.id));
+      const currentMappings = mappings.length > 0 ? mappings : INPUT_METRICS;
+
+      currentMappings.forEach(m => {
+        if (!existingIds.has(m.key)) {
           mergedData.push({
-            id: m.id,
+            id: m.key,
             label: m.label,
             currentYear: 0,
             previousYear: 0,
+            allYears: {},
             variation: 0,
             variationPercent: 0,
             sourcePage: '',
-            statementType: 'Required Inputs', // Group them together
+            statementType: 'Required Inputs',
             isMissing: true
           } as any);
         }
@@ -784,6 +1044,7 @@ function App() {
           data={mergedData}
           onDataUpdate={setTableData}
           onSourceClick={handleSourceClick}
+          availableYears={availableYears}
         />
       );
     }
@@ -795,8 +1056,10 @@ function App() {
             title="File Viewer"
             initialPage={documentPage}
             className="flex-1 border-none rounded-none w-full h-full"
-            fileUrl={fileUrl || ""}
             fileType={fileType}
+            fileUrl={fileUrl}
+            highlightLocation={highlightLocation}
+            onPageChange={(p) => setDocumentPage(p)}
           />
         </div>
       );
@@ -818,6 +1081,7 @@ function App() {
           initialPage={documentPage}
           className="flex-1 border-none rounded-none"
           highlightLocation={highlightLocation} // Pass highlight prop
+          onPageChange={(p) => setDocumentPage(p)}
         />
 
         {!rawDocumentContent && !isPythonProcessing && (
@@ -858,13 +1122,101 @@ function App() {
     }
   };
 
+  const handleCompanySearch = async (query: string) => {
+    if (query.trim().length < 2) {
+      setCompanySearchResults([]);
+      setCompanySearchError(null);
+      return;
+    }
+
+    setIsSearchingCompanies(true);
+    setCompanySearchError(null);
+    try {
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Search request timed out (15s)")), 15000);
+      });
+
+      // improvements: use Promise.race
+      const response = await Promise.race([
+        searchCompanies(query, searchExchange, 10),
+        timeoutPromise
+      ]) as ScraperResponse<CompanySearchResult[]>;
+
+      if (response.success) {
+        // Direct array assignment based on bridge implementation
+        const results = response.results || []; // Type assertion to handle any difference
+        // Filter out empty/invalid results if any
+        const validResults = Array.isArray(results) ? results : [];
+        setCompanySearchResults(validResults);
+
+        // Handle warnings/partial errors if present
+        if (response.errors && response.errors.length > 0) {
+          setCompanySearchError(response.errors.join(". "));
+        }
+      } else {
+        setCompanySearchResults([]);
+        setCompanySearchError(response.error || "Search failed. Please try again.");
+      }
+    } catch (error) {
+      console.error('Company search error:', error);
+      setCompanySearchResults([]);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setCompanySearchError(
+        errorMessage.includes("timed out")
+          ? "Search timed out. The exchange might be slow or blocking connections."
+          : "An unexpected error occurred. Please check your connection."
+      );
+    } finally {
+      setIsSearchingCompanies(false);
+    }
+  };
+
+  const handleSelectCompany = async (company: CompanySearchResult) => {
+    setSelectedCompany(company);
+    setIsCompanySearchOpen(false);
+    setCompanySearchQuery('');
+
+    // Fetch company details and financials
+    try {
+      const response = await getCompanyDetails(company.symbol, company.exchange);
+
+      if (response.success && response.results) {
+        const data = response.results;
+        // Process company financial data
+        if (data.items && Array.isArray(data.items)) {
+          setTableData(prev => {
+            const newMap = new Map(prev.map(i => [i.id, i]));
+            data.items.forEach((item: FinancialItem) => {
+              newMap.set(item.id, item);
+            });
+            return Array.from(newMap.values());
+          });
+
+          setDocumentTitle(`${company.name} (${company.exchange})`);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching company details:', error);
+    }
+  };
+
   return (
     <div className="h-screen bg-gray-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-200 flex flex-col overflow-hidden">
       <Header
         onUploadClick={() => setIsUploadModalOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenKnowledgeBase={() => setIsKbOpen(true)}
+        onOpenCompanySearch={() => setIsCompanySearchOpen(true)}
         title={documentTitle || undefined}
+        isProcessing={isPythonProcessing}
+        processingProgress={processingProgress ? {
+          percentage: processingProgress.percentage,
+          currentPage: processingProgress.currentPage,
+          totalPages: processingProgress.totalPages,
+          message: processingProgress.status
+        } : undefined}
+        onProcessingIndicatorClick={() => setIsProcessingDialogExpanded(!isProcessingDialogExpanded)}
       />
 
       {/* Tab Navigation Area */}
@@ -905,45 +1257,107 @@ function App() {
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col relative overflow-hidden">
 
-          {/* AI Insight Overlay */}
+          {/* AI Insight Modal - 70% Width Popup */}
           {aiInsight && settings.enableAI && (
-            <div className="m-6 mb-0 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-purple-900 dark:text-purple-100 text-sm relative animate-fadeIn shadow-lg">
-              <div className="flex items-start gap-3">
-                <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                  <h4 className="font-bold mb-1">AI Financial Insight</h4>
-                  <div className="leading-relaxed opacity-90 whitespace-pre-wrap">
-                    {aiInsight.split(/(\[Page \d+\])/g).map((part, i) => {
-                      const match = part.match(/\[Page (\d+)\]/);
-                      if (match) {
-                        const pageNum = match[1];
-                        return (
-                          <button
-                            key={i}
-                            onClick={() => {
-                              const p = parseInt(pageNum);
-                              if (!isNaN(p)) {
-                                setDocumentPage(p);
-                                setActiveTab('document');
-                              }
-                            }}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 bg-purple-100 dark:bg-purple-800/50 text-purple-700 dark:text-purple-300 rounded text-xs font-bold hover:bg-purple-200 dark:hover:bg-purple-700 transition-colors cursor-pointer"
-                            title={`Jump to Page ${pageNum}`}
-                          >
-                            {part}
-                          </button>
-                        );
-                      }
-                      return part;
-                    })}
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+              <div className="w-[70%] max-h-[80vh] flex flex-col bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl shadow-2xl relative overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-slate-800 bg-purple-50/50 dark:bg-purple-900/10">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg">
+                      <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <h4 className="font-bold text-lg text-gray-900 dark:text-gray-100">AI Financial Insight</h4>
                   </div>
+                  <button
+                    onClick={() => setAiInsight(null)}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full transition-colors text-gray-500"
+                  >
+                    ×
+                  </button>
                 </div>
-                <button
-                  onClick={() => setAiInsight(null)}
-                  className="absolute top-3 right-3 text-purple-400 hover:text-purple-700 dark:hover:text-purple-200"
-                >
-                  ×
-                </button>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar text-base leading-7 text-gray-700 dark:text-gray-300">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-xl font-bold mb-3 text-gray-900 dark:text-white mt-6">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-lg font-bold mb-2 text-gray-900 dark:text-white mt-4">{children}</h3>,
+                      p: ({ children }) => <p className="mb-4 leading-relaxed">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-6 mb-4 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-6 mb-4 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="mb-1">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold text-gray-900 dark:text-white">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      code: ({ className, children, ...props }) => {
+                        const isInline = !className || !className.startsWith('language-');
+                        if (isInline) {
+                          return <code className="px-1.5 py-0.5 bg-gray-100 dark:bg-slate-800 text-purple-700 dark:text-purple-300 rounded text-sm font-mono" {...props}>{children}</code>;
+                        }
+                        return <code className="block p-4 bg-gray-100 dark:bg-slate-800 rounded-lg text-sm font-mono overflow-x-auto my-4" {...props}>{children}</code>;
+                      },
+                      pre: ({ children }) => <pre className="bg-gray-100 dark:bg-slate-800 rounded-lg p-4 overflow-x-auto my-4">{children}</pre>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-purple-500 pl-4 py-2 my-4 bg-purple-50 dark:bg-purple-900/20 italic text-gray-700 dark:text-gray-300">
+                          {children}
+                        </blockquote>
+                      ),
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">
+                          {children}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ),
+                      table: ({ children }) => (
+                        <div className="overflow-auto my-4 border border-gray-200 dark:border-slate-700 rounded-lg max-h-[60vh] custom-scrollbar">
+                          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-700 border-separate border-spacing-0">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-gray-50 dark:bg-slate-800/50">{children}</thead>,
+                      tbody: ({ children }) => <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-700">{children}</tbody>,
+                      tr: ({ children }) => <tr className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">{children}</tr>,
+                      th: ({ children }) => <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider sticky top-0 bg-gray-50 dark:bg-slate-800 z-10 border-b border-gray-200 dark:border-slate-700">{children}</th>,
+                      td: ({ children }) => <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">{children}</td>,
+                      hr: () => <hr className="my-6 border-gray-200 dark:border-slate-700" />,
+                    }}
+                  >
+                    {aiInsight}
+                  </ReactMarkdown>
+                </div>
+
+                {/* Footer Actions */}
+                <div className="px-6 py-4 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50 flex justify-end gap-3">
+                  {!isAnalyzing && aiInsight && typeof aiInsight === 'string' && !aiInsight.includes('[ANALYSIS_COMPLETE]') && (
+                    <button
+                      onClick={handleContinueAnalysis}
+                      className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                      <FastForward className="w-4 h-4" />
+                      Continue Generation
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      if (selection) {
+                        // Re-run with deeper context
+                        handleAiAnalysis(`Deep dive into this specifically: "${selection.text}"`, 'thinking');
+                      }
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                  >
+                    <BrainCircuit className="w-4 h-4" />
+                    Deep Search this Topic
+                  </button>
+                  <button
+                    onClick={() => setAiInsight(null)}
+                    className="px-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -956,23 +1370,56 @@ function App() {
               onMouseDown={(e) => e.stopPropagation()} // Prevent clearing selection when clicking the popup
             >
               <button
-                onClick={() => handleAiAnalysis(`Explain this term clearly and simply for a non-expert: "${selection.text}"`, 'standard')}
+                onClick={() => handleAiAnalysis(`Term: "${selection.text}"
+Instructions:
+1. Define simply (1-2 lines)
+2. Extract any numbers from context and present as a **small markdown table** showing Year/Period and Value, with meaning in a refined column.
+3. State if value change (↑/↓) is positive/negative for company
+4. Give 1 realistic example with actual numbers
+Keep total under 150 words.`, 'standard')}
                 className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-xs font-semibold text-gray-700 dark:text-gray-200 transition-colors"
-                title="Simple explanation using standard model"
+                title="Simple explanation with data analysis"
               >
                 <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                Explain (Simple)
+                Explain
               </button>
 
               <div className="w-px h-4 bg-gray-200 dark:bg-slate-700 mx-0.5"></div>
 
               <button
-                onClick={() => handleAiAnalysis(`Provide a deep, comprehensive analysis and implications of this term: "${selection.text}"`, 'thinking')}
+                onClick={() => handleAiAnalysis(`Term: "${selection.text}"
+
+Provide a comprehensive financial analysis:
+
+**Definition & Context:**
+- Clear definition of this term/concept
+- How it appears in financial statements (Balance Sheet/P&L/Cash Flow)
+- Relevant accounting standards (Ind AS/IFRS)
+
+**Data Analysis:**
+- Extract ALL numbers related to this from the document
+- **Present in a Markdown Table**: Columns for Metric, Current Period, Previous Period, Change (Abs), Change (%)
+- Ensure the table is clean and easy to read
+
+**Financial Impact:**
+- Is an INCREASE in this metric generally good or bad? Why?
+- Is a DECREASE good or bad? Why?
+- What does this indicate about company health?
+
+**Investor Perspective:**
+- Red flags to watch for
+- Positive signals this might indicate
+- How this affects valuation ratios
+
+**Example:**
+- Provide a realistic example with actual numbers showing the calculation and interpretation
+
+Be thorough and educational.`, 'thinking')}
                 className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-colors"
-                title="Deep analysis using Gemini Thinking mode"
+                title="Deep analysis with full data interpretation"
               >
                 <BrainCircuit className="w-3.5 h-3.5" />
-                Deep Search
+                Analyze
               </button>
 
               <div className="w-px h-4 bg-gray-200 dark:bg-slate-700 mx-0.5"></div>
@@ -1011,21 +1458,35 @@ function App() {
             </div>
           )}
 
-          {/* Python Processing Loading State - Enhanced */}
-          {isPythonProcessing && (
-            <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 z-50 flex items-center justify-center backdrop-blur-sm">
-              <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 w-full max-w-md mx-4">
+          {/* Collapsible Processing Dialog */}
+          {isPythonProcessing && isProcessingDialogExpanded && (
+            <div
+              className="fixed inset-0 z-40 flex items-center justify-center"
+              onClick={() => setIsProcessingDialogExpanded(false)}
+            >
+              <div
+                className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 w-96 animate-fadeInScale"
+                onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+              >
                 {/* Header */}
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 dark:text-white">Processing Document</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {processingProgress?.fileName || 'Analyzing...'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Processing Document</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-[280px]">
-                      {processingProgress?.fileName || 'Analyzing...'}
-                    </p>
-                  </div>
+                  <button
+                    onClick={() => setIsProcessingDialogExpanded(false)}
+                    className="btn-icon text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
 
                 {/* Progress Bar */}
@@ -1046,25 +1507,35 @@ function App() {
                   </div>
                 </div>
 
-                {/* Stats Row */}
-                <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 dark:bg-slate-900/50 rounded-xl">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white font-mono">
+                {/* Stats Grid */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="bg-gray-50 dark:bg-slate-900/50 rounded-xl p-3 text-center">
+                    <p className="text-xl font-bold text-gray-900 dark:text-white font-mono">
                       {processingProgress?.currentPage || 0}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Pages Done</p>
                   </div>
-                  <div className="text-center border-x border-gray-200 dark:border-slate-700">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white font-mono">
+                  <div className="bg-gray-50 dark:bg-slate-900/50 rounded-xl p-3 text-center">
+                    <p className="text-xl font-bold text-gray-900 dark:text-white font-mono">
                       {processingProgress?.totalPages || '—'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Total Pages</p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 font-mono">
+                  <div className="bg-gray-50 dark:bg-slate-900/50 rounded-xl p-3 text-center">
+                    <p className="text-xl font-bold text-blue-600 dark:text-blue-400 font-mono">
                       {elapsedTime > 0 ? `${elapsedTime}s` : '—'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Elapsed</p>
+                  </div>
+                </div>
+
+                {/* Info */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-start gap-2 text-sm text-blue-700 dark:text-blue-300">
+                    <Zap className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">
+                      Processing in background. Click outside or the <span className="font-semibold">×</span> button to minimize to top bar.
+                    </p>
                   </div>
                 </div>
 
@@ -1084,21 +1555,21 @@ function App() {
       </main>
 
       {/* General AI Chat / Summary Bar - Moved outside main relative flow to be fixed viewport */}
-      {!isPythonProcessing && settings.enableAI && (
+      {settings.enableAI && (
         <div className="fixed bottom-6 z-20 transition-all duration-300 ease-in-out" style={{ left: '24px', right: '24px' }}>
           <div className="max-w-3xl mx-auto flex items-center gap-2">
             {/* Generate Summary Button */}
-            {!aiInsight && (
-              <button
-                onClick={() => handleAiAnalysis(undefined, 'thinking')}
-                disabled={isAnalyzing}
-                className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-70 font-medium text-sm"
-                title="Generate deep analysis with Gemini 3 Pro Thinking Mode"
-              >
-                {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
-                {isAnalyzing ? 'Thinking...' : 'Deep Summary'}
-              </button>
-            )}
+            <button
+              onClick={() => handleDeepSummaryAnalysis(documentPage)}
+              disabled={isAnalyzing}
+              className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-70 font-medium text-sm"
+              title="Generate deep analysis of the current page with Gemini Thinking Mode"
+            >
+              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+              {isAnalyzing ? 'Thinking...' : 'Deep Summary'}
+            </button>
+
+
 
             {/* General Document Q&A Input */}
             <div className="flex-1 relative shadow-lg rounded-lg">
@@ -1113,7 +1584,7 @@ function App() {
                   }
                 }}
                 placeholder={rawDocumentContent ? "Ask a question about the uploaded document..." : "Upload a document to ask questions..."}
-                disabled={!rawDocumentContent || isAnalyzing}
+                disabled={isAnalyzing}
                 className="w-full pl-4 pr-12 py-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm transition-all disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:opacity-70"
               />
               <button
@@ -1128,6 +1599,69 @@ function App() {
               >
                 <Send className="w-4 h-4" />
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Document Viewer Overlay */}
+      {floatingPdf && floatingPdf.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-end animate-fadeIn">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+            onClick={() => setFloatingPdf(null)}
+          />
+
+          {/* Floating Panel (Right Side) */}
+          <div className="relative w-[50vw] h-[95vh] mr-4 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-slideLeft">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-default)] bg-[var(--bg-surface)]">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-500/10 p-1.5 rounded-lg text-red-500">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-primary text-sm">Source Document</h3>
+                  <p className="text-xs text-secondary">
+                    Viewing Page {floatingPdf.page}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    // Open full view
+                    setDocumentPage(floatingPdf.page);
+                    setActiveTab('document');
+                    setFloatingPdf(null);
+                  }}
+                  className="p-2 text-tertiary hover:text-primary transition-colors rounded-lg hover:bg-[var(--bg-hover)]"
+                  title="Open in Full Tab"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setFloatingPdf(null)}
+                  className="p-2 text-tertiary hover:text-error transition-colors rounded-lg hover:bg-[var(--bg-hover)]"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewer Content */}
+            <div className="flex-1 relative overflow-hidden">
+              <DocumentViewer
+                content={rawDocumentContent}
+                fileUrl={fileUrl}
+                fileType={fileType}
+                initialPage={floatingPdf.page}
+                onPageChange={(p) => setFloatingPdf(prev => prev ? { ...prev, page: p } : null)}
+                highlightLocation={highlightLocation}
+              />
             </div>
           </div>
         </div>
@@ -1150,6 +1684,17 @@ function App() {
         onClose={() => setIsKbOpen(false)}
         mappings={mappings}
         onSave={handleSaveMappings}
+      />
+      <CompanySearchModal
+        isOpen={isCompanySearchOpen}
+        onClose={() => setIsCompanySearchOpen(false)}
+        onSearch={handleCompanySearch}
+        onSelectCompany={handleSelectCompany}
+        isSearching={isSearchingCompanies}
+        results={companySearchResults}
+        exchange={searchExchange}
+        onExchangeChange={setSearchExchange}
+        error={companySearchError}
       />
     </div>
   );

@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { Search, FileText, Edit2, Filter, Grid3X3, List, Inbox, ChevronDown, ChevronRight, Layers, CheckCircle2, AlertTriangle, XCircle, X, Check, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, TrendingUp, TrendingDown, SlidersHorizontal } from 'lucide-react';
+import { Search, FileText, Edit2, Filter, Grid3X3, List, Inbox, ChevronDown, ChevronRight, Layers, CheckCircle2, AlertTriangle, XCircle, X, Check, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, TrendingUp, TrendingDown, SlidersHorizontal, Database, RefreshCw } from 'lucide-react';
 import { FinancialItem, TermMapping, CATEGORY_OPTIONS } from '../types';
 import { INPUT_METRICS } from '../library/metrics';
+import { getDbData } from '../services/tauriBridge';
 
 interface CapturedDataGridProps {
     data: FinancialItem[];
@@ -10,6 +11,7 @@ interface CapturedDataGridProps {
     onSourceClick?: (item: FinancialItem) => void;
     onDataUpdate?: (updatedData: FinancialItem[]) => void;
     terminologyMap?: TermMapping[];
+    availableYears?: string[];
 }
 
 // Valid statement types from structured financial statements only
@@ -58,11 +60,13 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
     searchTerm = '',
     onSourceClick,
     onDataUpdate,
-    terminologyMap = INPUT_METRICS
+    terminologyMap = INPUT_METRICS,
+    availableYears = []
 }) => {
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
     const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [showOnlyMapped, setShowOnlyMapped] = useState(false); // Default: show ALL extracted items
+    const [activeTab, setActiveTab] = useState<'structured' | 'raw_db'>('structured');
 
     // Sorting state
     type SortMode = 'alpha-asc' | 'alpha-desc' | 'value-high' | 'value-low' | 'category';
@@ -75,27 +79,50 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
     const [filterStatus, setFilterStatus] = useState<'all' | 'with-data' | 'missing'>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
+    const yearsToShow = useMemo(() => {
+        if (availableYears && availableYears.length > 0) {
+            // Sort years newest first
+            return [...availableYears].sort((a, b) => b.localeCompare(a));
+        }
+        return ['current', 'previous'];
+    }, [availableYears]);
+
     // Editing state for page numbers
     const [editingPageId, setEditingPageId] = useState<string | null>(null);
     const [editingPageValue, setEditingPageValue] = useState<string>('');
 
     // Editing state for values
     const [editingValueId, setEditingValueId] = useState<string | null>(null);
-    const [editValues, setEditValues] = useState<{ current: string, previous: string }>({ current: '', previous: '' });
+    const [editValues, setEditValues] = useState<Record<string, string>>({});
+
 
     const handleStartEditValue = (item: FinancialItem) => {
         setEditingValueId(item.id);
-        setEditValues({
+        const vals: Record<string, string> = {
             current: item.currentYear !== 0 ? item.currentYear.toString() : '',
             previous: item.previousYear !== 0 ? item.previousYear.toString() : ''
-        });
+        };
+        // Add all specific years
+        if (item.allYears) {
+            Object.entries(item.allYears).forEach(([year, val]) => {
+                vals[year] = val !== 0 ? val.toString() : '';
+            });
+        }
+        setEditValues(vals);
     };
 
     const handleSaveValueEdit = (item: FinancialItem) => {
         if (!onDataUpdate) return;
 
-        const currentVal = parseFloat(editValues.current.replace(/[^0-9.-]/g, '')) || 0;
-        const previousVal = parseFloat(editValues.previous.replace(/[^0-9.-]/g, '')) || 0;
+        const currentVal = parseFloat((editValues['current'] || '0').replace(/[^0-9.-]/g, '')) || 0;
+        const previousVal = parseFloat((editValues['previous'] || '0').replace(/[^0-9.-]/g, '')) || 0;
+
+        // Sync allYears
+        const updatedAllYears: Record<string, number> = { ...(item.allYears || {}) };
+        Object.entries(editValues).forEach(([year, valStr]) => {
+            if (year === 'current' || year === 'previous') return;
+            updatedAllYears[year] = parseFloat(valStr.replace(/[^0-9.-]/g, '')) || 0;
+        });
 
         // Calculate variation
         const variation = currentVal - previousVal;
@@ -106,6 +133,7 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
             ...item,
             currentYear: currentVal,
             previousYear: previousVal,
+            allYears: updatedAllYears,
             variation,
             variationPercent,
         };
@@ -242,11 +270,26 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
 
             // Try explicit matching if ID match failed
             if (!foundItem) {
-                foundItem = data.find(d =>
-                    d.id.toLowerCase() === term.key.toLowerCase() ||
-                    d.id.toLowerCase() === term.id.toLowerCase() ||
-                    d.label.toLowerCase() === term.label.toLowerCase()
-                );
+                foundItem = data.find(d => {
+                    const dId = d.id.toLowerCase();
+                    const dLabel = d.label.toLowerCase();
+
+                    // Check strict matches
+                    if (dId === term.key.toLowerCase() ||
+                        dId === term.id.toLowerCase() ||
+                        dLabel === term.label.toLowerCase()) {
+                        return true;
+                    }
+
+                    // Check keyword matches
+                    const allKeywords = [
+                        ...(term.keywords_indas || []),
+                        ...(term.keywords_gaap || []),
+                        ...(term.keywords_ifrs || [])
+                    ];
+
+                    return allKeywords.some(kw => dLabel === kw.toLowerCase());
+                });
             }
 
             if (foundItem) {
@@ -314,17 +357,10 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
 
         const existingKeys = Object.keys(groupedData);
 
-        // Sort keys based on standard order
+        // Sort keys: Current Market Price first, then A-Z
         const sortedKeys = existingKeys.sort((a, b) => {
-            const idxA = standardOrder.indexOf(a);
-            const idxB = standardOrder.indexOf(b);
-            // If both in standard list, compare indices
-            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-            // If only A is standard, it comes first
-            if (idxA !== -1) return -1;
-            // If only B is standard, it comes first
-            if (idxB !== -1) return 1;
-            // Otherwise alphabetical
+            if (a === 'Current Market Price') return -1;
+            if (b === 'Current Market Price') return 1;
             return a.localeCompare(b);
         });
 
@@ -391,6 +427,7 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
         if (cat.includes('Asset')) return '🏢';
         if (cat.includes('Liabilities') || cat.includes('Debt')) return '💳';
         if (cat.includes('Cash')) return '💵';
+        if (cat.includes('Market')) return '💹';
         if (cat.includes('Disclosures')) return '📋';
         return '📁';
     }
@@ -406,426 +443,663 @@ export const CapturedDataGrid: React.FC<CapturedDataGridProps> = ({
             {/* Toolbar */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)]">
                 <div className="flex items-center gap-4">
-                    <h2 className="label-uppercase text-sm tracking-wide">Captured Data</h2>
-                    <div className="flex items-center gap-2">
-                        <span className="pill pill-accent">{totalFiltered} items</span>
-                        {totalRaw !== totalFiltered && (
-                            <span className="text-xs text-tertiary">
-                                ({totalRaw - totalFiltered} filtered)
-                            </span>
-                        )}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    {/* Search Input */}
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tertiary" />
-                        <input
-                            type="text"
-                            placeholder="Search items..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="glass-input pl-9 pr-3 py-1.5 w-48 text-sm"
-                        />
-                    </div>
-
-                    {/* Sort Dropdown */}
-                    <div className="relative">
+                    <div className="flex bg-[var(--bg-base)] rounded-lg p-1">
                         <button
-                            onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterPanel(false); }}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${sortMode !== 'category'
-                                ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30'
-                                : 'bg-[var(--bg-surface)] text-secondary border border-[var(--border-default)] hover:border-[var(--border-strong)]'
+                            onClick={() => setActiveTab('structured')}
+                            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === 'structured'
+                                ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
+                                : 'text-tertiary hover:text-secondary'
                                 }`}
                         >
-                            <ArrowUpDown className="w-3.5 h-3.5" />
-                            <span>Sort</span>
-                            <ChevronDown className="w-3 h-3" />
+                            Structured
                         </button>
-                        {showSortMenu && (
-                            <div className="absolute right-0 top-full mt-2 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl z-50 py-2 animate-fadeIn">
-                                {[
-                                    { key: 'alpha-asc' as const, label: 'A → Z', icon: ArrowDownAZ },
-                                    { key: 'alpha-desc' as const, label: 'Z → A', icon: ArrowUpAZ },
-                                    { key: 'value-high' as const, label: 'Value (High → Low)', icon: TrendingDown },
-                                    { key: 'value-low' as const, label: 'Value (Low → High)', icon: TrendingUp },
-                                    { key: 'category' as const, label: 'By Category', icon: Layers },
-                                ].map(option => (
-                                    <button
-                                        key={option.key}
-                                        onClick={() => { setSortMode(option.key); setShowSortMenu(false); }}
-                                        className={`w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-hover)] transition-colors ${sortMode === option.key ? 'text-accent font-medium' : 'text-secondary'
-                                            }`}
-                                    >
-                                        <option.icon className="w-4 h-4" />
-                                        {option.label}
-                                        {sortMode === option.key && <Check className="w-4 h-4 ml-auto" />}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Filter Dropdown */}
-                    <div className="relative">
                         <button
-                            onClick={() => { setShowFilterPanel(!showFilterPanel); setShowSortMenu(false); }}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterCategory !== 'all' || filterStatus !== 'all'
-                                ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'
-                                : 'bg-[var(--bg-surface)] text-secondary border border-[var(--border-default)] hover:border-[var(--border-strong)]'
+                            onClick={() => setActiveTab('raw_db')}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === 'raw_db'
+                                ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
+                                : 'text-tertiary hover:text-secondary'
                                 }`}
                         >
-                            <SlidersHorizontal className="w-3.5 h-3.5" />
-                            <span>Filter</span>
-                            {(filterCategory !== 'all' || filterStatus !== 'all') && (
-                                <span className="w-5 h-5 rounded-full bg-purple-500 text-white text-[10px] flex items-center justify-center font-bold">
-                                    {(filterCategory !== 'all' ? 1 : 0) + (filterStatus !== 'all' ? 1 : 0)}
+                            <Database className="w-3.5 h-3.5" />
+                            Raw DB
+                        </button>
+                    </div>
+
+                    {activeTab === 'structured' && (
+                        <div className="flex items-center gap-2">
+                            <span className="pill pill-accent">{totalFiltered} items</span>
+                            {totalRaw !== totalFiltered && (
+                                <span className="text-xs text-tertiary">
+                                    ({totalRaw - totalFiltered} filtered)
                                 </span>
                             )}
-                        </button>
-                        {showFilterPanel && (
-                            <div className="absolute right-0 top-full mt-2 w-72 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl z-50 p-4 space-y-4 animate-fadeIn">
-                                <div className="space-y-2">
-                                    <label className="label-uppercase text-xs">Category</label>
-                                    <select
-                                        value={filterCategory}
-                                        onChange={(e) => setFilterCategory(e.target.value)}
-                                        className="glass-input w-full text-sm"
-                                    >
-                                        <option value="all">All Categories</option>
-                                        {availableCategories.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="label-uppercase text-xs">Status</label>
-                                    <select
-                                        value={filterStatus}
-                                        onChange={(e) => setFilterStatus(e.target.value as any)}
-                                        className="glass-input w-full text-sm"
-                                    >
-                                        <option value="all">All Items</option>
-                                        <option value="with-data">With Data Only</option>
-                                        <option value="missing">Missing Only</option>
-                                    </select>
-                                </div>
-                                {(filterCategory !== 'all' || filterStatus !== 'all') && (
-                                    <button
-                                        onClick={() => { setFilterCategory('all'); setFilterStatus('all'); }}
-                                        className="w-full text-xs text-error hover:underline flex items-center justify-center gap-1 pt-2 border-t border-[var(--border-subtle)]"
-                                    >
-                                        <X className="w-3 h-3" /> Clear Filters
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* View Toggle */}
-                    <div className="flex items-center bg-[var(--bg-surface)] rounded-lg p-1">
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 rounded-md transition-all ${viewMode === 'list'
-                                ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
-                                : 'text-tertiary hover:text-secondary'
-                                }`}
-                        >
-                            <List className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 rounded-md transition-all ${viewMode === 'grid'
-                                ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
-                                : 'text-tertiary hover:text-secondary'
-                                }`}
-                        >
-                            <Grid3X3 className="w-4 h-4" />
-                        </button>
-                    </div>
+                        </div>
+                    )}
                 </div>
+
+                {activeTab === 'structured' && (
+                    <div className="flex items-center gap-3">
+                        {/* Search Input */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tertiary" />
+                            <input
+                                type="text"
+                                placeholder="Search items..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="glass-input pl-9 pr-3 py-1.5 w-48 text-sm"
+                            />
+                        </div>
+
+                        {/* Sort Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterPanel(false); }}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${sortMode !== 'category'
+                                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30'
+                                    : 'bg-[var(--bg-surface)] text-secondary border border-[var(--border-default)] hover:border-[var(--border-strong)]'
+                                    }`}
+                            >
+                                <ArrowUpDown className="w-3.5 h-3.5" />
+                                <span>Sort</span>
+                                <ChevronDown className="w-3 h-3" />
+                            </button>
+                            {showSortMenu && (
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl z-50 py-2 animate-fadeIn">
+                                    {[
+                                        { key: 'alpha-asc' as const, label: 'A → Z', icon: ArrowDownAZ },
+                                        { key: 'alpha-desc' as const, label: 'Z → A', icon: ArrowUpAZ },
+                                        { key: 'value-high' as const, label: 'Value (High → Low)', icon: TrendingDown },
+                                        { key: 'value-low' as const, label: 'Value (Low → High)', icon: TrendingUp },
+                                        { key: 'category' as const, label: 'By Category', icon: Layers },
+                                    ].map(option => (
+                                        <button
+                                            key={option.key}
+                                            onClick={() => { setSortMode(option.key); setShowSortMenu(false); }}
+                                            className={`w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-hover)] transition-colors ${sortMode === option.key ? 'text-accent font-medium' : 'text-secondary'
+                                                }`}
+                                        >
+                                            <option.icon className="w-4 h-4" />
+                                            {option.label}
+                                            {sortMode === option.key && <Check className="w-4 h-4 ml-auto" />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Filter Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => { setShowFilterPanel(!showFilterPanel); setShowSortMenu(false); }}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterCategory !== 'all' || filterStatus !== 'all'
+                                    ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30'
+                                    : 'bg-[var(--bg-surface)] text-secondary border border-[var(--border-default)] hover:border-[var(--border-strong)]'
+                                    }`}
+                            >
+                                <SlidersHorizontal className="w-3.5 h-3.5" />
+                                <span>Filter</span>
+                                {(filterCategory !== 'all' || filterStatus !== 'all') && (
+                                    <span className="w-5 h-5 rounded-full bg-purple-500 text-white text-[10px] flex items-center justify-center font-bold">
+                                        {(filterCategory !== 'all' ? 1 : 0) + (filterStatus !== 'all' ? 1 : 0)}
+                                    </span>
+                                )}
+                            </button>
+                            {showFilterPanel && (
+                                <div className="absolute right-0 top-full mt-2 w-72 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl z-50 p-4 space-y-4 animate-fadeIn">
+                                    <div className="space-y-2">
+                                        <label className="label-uppercase text-xs">Category</label>
+                                        <select
+                                            value={filterCategory}
+                                            onChange={(e) => setFilterCategory(e.target.value)}
+                                            className="glass-input w-full text-sm"
+                                        >
+                                            <option value="all">All Categories</option>
+                                            {availableCategories.map(cat => (
+                                                <option key={cat} value={cat}>{cat}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="label-uppercase text-xs">Status</label>
+                                        <select
+                                            value={filterStatus}
+                                            onChange={(e) => setFilterStatus(e.target.value as any)}
+                                            className="glass-input w-full text-sm"
+                                        >
+                                            <option value="all">All Items</option>
+                                            <option value="with-data">With Data Only</option>
+                                            <option value="missing">Missing Only</option>
+                                        </select>
+                                    </div>
+                                    {(filterCategory !== 'all' || filterStatus !== 'all') && (
+                                        <button
+                                            onClick={() => { setFilterCategory('all'); setFilterStatus('all'); }}
+                                            className="w-full text-xs text-error hover:underline flex items-center justify-center gap-1 pt-2 border-t border-[var(--border-subtle)]"
+                                        >
+                                            <X className="w-3 h-3" /> Clear Filters
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* View Toggle */}
+                        <div className="flex items-center bg-[var(--bg-surface)] rounded-lg p-1">
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={`p-2 rounded-md transition-all ${viewMode === 'list'
+                                    ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
+                                    : 'text-tertiary hover:text-secondary'
+                                    }`}
+                            >
+                                <List className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode('grid')}
+                                className={`p-2 rounded-md transition-all ${viewMode === 'grid'
+                                    ? 'bg-[var(--bg-elevated)] text-primary shadow-sm'
+                                    : 'text-tertiary hover:text-secondary'
+                                    }`}
+                            >
+                                <Grid3X3 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 pb-24">
-                {!hasAnyData ? (
-                    <div className="flex flex-col items-center justify-center py-20 text-tertiary animate-fadeIn">
-                        <div className="w-16 h-16 rounded-2xl bg-[var(--bg-surface)] flex items-center justify-center mb-4">
-                            <Inbox className="w-8 h-8 opacity-50" />
-                        </div>
-                        <p className="text-sm font-medium text-secondary">
-                            {showOnlyMapped ? 'No mapped financial terms found' : 'No data captured yet'}
-                        </p>
-                        <p className="text-xs mt-1">
-                            {showOnlyMapped && totalRaw > 0
-                                ? `${totalRaw} items extracted but none match terminology map. Try disabling Strict Mode.`
-                                : 'Upload a document to extract financial data'
-                            }
-                        </p>
-                        {showOnlyMapped && totalRaw > 0 && (
-                            <button
-                                onClick={() => setShowOnlyMapped(false)}
-                                className="mt-4 px-4 py-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg text-sm font-medium hover:bg-amber-500/20 transition-colors"
-                            >
-                                Show All Items
-                            </button>
-                        )}
-                    </div>
+                {activeTab === 'raw_db' ? (
+                    <RawDbView />
                 ) : (
-                    <div className="space-y-6">
-                        {sectionConfig.filter(s => filteredAndSortedData[s.id]?.length > 0).map(section => {
-                            const items = filteredAndSortedData[section.id];
-                            if (!items || items.length === 0) return null;
-                            const isCollapsed = collapsedSections.has(section.id);
+                    !hasAnyData ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-tertiary animate-fadeIn">
+                            <div className="w-16 h-16 rounded-2xl bg-[var(--bg-surface)] flex items-center justify-center mb-4">
+                                <Inbox className="w-8 h-8 opacity-50" />
+                            </div>
+                            <p className="text-sm font-medium text-secondary">
+                                {showOnlyMapped ? 'No mapped financial terms found' : 'No data captured yet'}
+                            </p>
+                            <p className="text-xs mt-1">
+                                {showOnlyMapped && totalRaw > 0
+                                    ? `${totalRaw} items extracted but none match terminology map. Try disabling Strict Mode.`
+                                    : 'Upload a document to extract financial data'
+                                }
+                            </p>
+                            {showOnlyMapped && totalRaw > 0 && (
+                                <button
+                                    onClick={() => setShowOnlyMapped(false)}
+                                    className="mt-4 px-4 py-2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg text-sm font-medium hover:bg-amber-500/20 transition-colors"
+                                >
+                                    Show All Items
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            {sectionConfig.filter(s => filteredAndSortedData[s.id]?.length > 0).map(section => {
+                                const items = filteredAndSortedData[section.id];
+                                if (!items || items.length === 0) return null;
+                                const isCollapsed = collapsedSections.has(section.id);
 
-                            return (
-                                <div key={section.id} className="animate-fadeIn">
-                                    {/* Section Header */}
-                                    <button
-                                        onClick={() => toggleSection(section.id)}
-                                        className="flex items-center gap-2 w-full text-left mb-3 group"
-                                    >
-                                        <div className={`p-1 rounded bg-[var(--bg-surface)] group-hover:bg-[var(--bg-elevated)] transition-colors text-tertiary`}>
-                                            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="text-sm font-semibold text-primary">{section.label}</h3>
-                                            <span className="text-xs text-tertiary bg-[var(--bg-surface)] px-2 py-0.5 rounded-full border border-[var(--border-default)]">
-                                                {items.length}
-                                            </span>
-                                        </div>
-                                        <div className="h-px bg-[var(--border-default)] flex-1 ml-4 group-hover:bg-[var(--border-strong)] transition-colors" />
-                                    </button>
-
-                                    {/* Section Content */}
-                                    {!isCollapsed && (
-                                        viewMode === 'grid' ? (
-                                            /* Grid View */
-                                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 ml-2">
-                                                {items.map((item, index) => {
-                                                    const isMissing = (item as any).isMissing;
-                                                    const isEditing = editingValueId === item.id;
-
-                                                    return (
-                                                        <div
-                                                            key={item.id}
-                                                            className={`group p-4 rounded-xl border transition-all relative overflow-hidden ${isMissing
-                                                                ? 'bg-[var(--bg-surface)] border-[var(--border-subtle)] border-dashed hover:border-[var(--border-default)]'
-                                                                : 'bg-[var(--bg-surface)] border-[var(--border-default)] hover:border-[var(--border-strong)]'
-                                                                }`}
-                                                            style={{ animationDelay: `${index * 30}ms` }}
-                                                        >
-                                                            <div className="flex items-start justify-between mb-3">
-                                                                <span className="text-xs truncate flex-1 pr-2 text-secondary font-medium" title={item.label}>
-                                                                    {item.label}
-                                                                </span>
-                                                                <button
-                                                                    className={`btn-icon w-6 h-6 transition-opacity ${isEditing ? 'opacity-100 text-[var(--accent-primary)]' : 'opacity-0 group-hover:opacity-100 text-tertiary hover:text-primary'}`}
-                                                                    onClick={() => !isEditing && handleStartEditValue(item)}
-                                                                >
-                                                                    <Edit2 className="w-3 h-3" />
-                                                                </button>
-                                                            </div>
-
-                                                            {isEditing ? (
-                                                                <div className="space-y-2">
-                                                                    <div>
-                                                                        <label className="text-[10px] text-tertiary uppercase">Current</label>
-                                                                        <input
-                                                                            className="w-full text-sm font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)]"
-                                                                            value={editValues.current}
-                                                                            onChange={(e) => setEditValues({ ...editValues, current: e.target.value })}
-                                                                            onKeyDown={(e) => handleValueKeyDown(e, item)}
-                                                                            autoFocus
-                                                                            placeholder="0.00"
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="text-[10px] text-tertiary uppercase">Previous</label>
-                                                                        <input
-                                                                            className="w-full text-sm font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)]"
-                                                                            value={editValues.previous}
-                                                                            onChange={(e) => setEditValues({ ...editValues, previous: e.target.value })}
-                                                                            onKeyDown={(e) => handleValueKeyDown(e, item)}
-                                                                            placeholder="0.00"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="flex justify-end gap-1 mt-1">
-                                                                        <button onClick={() => handleSaveValueEdit(item)} className="p-1 text-success hover:bg-green-500/10 rounded"><Check className="w-3 h-3" /></button>
-                                                                        <button onClick={() => setEditingValueId(null)} className="p-1 text-error hover:bg-red-500/10 rounded"><X className="w-3 h-3" /></button>
-                                                                    </div>
-                                                                </div>
-                                                            ) : (
-                                                                <div onClick={() => handleStartEditValue(item)} className="cursor-text">
-                                                                    <p className={`text-lg font-bold font-mono tabular-nums ${isMissing ? 'text-tertiary' : 'text-primary'}`}>
-                                                                        {isMissing && item.currentYear === 0 ? '—' : formatCurrency(item.currentYear)}
-                                                                    </p>
-                                                                    {(!isMissing || item.previousYear !== 0) && (
-                                                                        <p className="text-xs font-mono text-tertiary mt-1">
-                                                                            Prev: {formatCurrency(item.previousYear)}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            )}
-
-                                                            {!isMissing && !isEditing && (
-                                                                <div className="flex items-center gap-2 mt-3 pt-2 border-t border-[var(--border-subtle)]">
-                                                                    <span className={`text-xs font-medium ${(item.variation || 0) >= 0 ? 'text-success' : 'text-error'}`}>
-                                                                        {(item.variationPercent || 0) > 0 ? '+' : ''}{(item.variationPercent || 0).toFixed(1)}%
-                                                                    </span>
-                                                                    <div className="flex-1"></div>
-                                                                    {item.sourcePage && (
-                                                                        <button
-                                                                            className="text-xs text-tertiary hover:text-primary flex items-center gap-1 bg-[var(--bg-base)] px-1.5 py-0.5 rounded border border-transparent hover:border-[var(--border-default)] transition-all"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                onSourceClick?.(item);
-                                                                            }}
-                                                                            title={item.rawLine ? `Source: ${item.rawLine}` : `Page ${item.sourcePage}`}
-                                                                        >
-                                                                            <FileText className="w-3 h-3" />
-                                                                            {item.sourcePage}
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })}
+                                return (
+                                    <div key={section.id} className="animate-fadeIn">
+                                        {/* Section Header */}
+                                        <div className={`flex items-center mb-3 group ${viewMode === 'list' ? 'gap-0' : 'gap-4'}`}>
+                                            <div className={`${viewMode === 'list' ? 'w-[324px]' : 'shrink-0'} flex items-center gap-4 pr-4 transition-all`}>
+                                                <button
+                                                    onClick={() => toggleSection(section.id)}
+                                                    className="flex items-center gap-2 hover:bg-[var(--bg-hover)] px-2 py-1 rounded-lg transition-colors text-left shrink-0"
+                                                >
+                                                    <div className={`p-1 rounded bg-[var(--bg-surface)] group-hover:bg-[var(--bg-elevated)] transition-colors text-tertiary`}>
+                                                        {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <h3 className="text-sm font-semibold text-primary truncate max-w-[150px]">{section.label}</h3>
+                                                        <span className="text-xs text-tertiary bg-[var(--bg-surface)] px-2 py-0.5 rounded-full border border-[var(--border-default)]">
+                                                            {items.length}
+                                                        </span>
+                                                    </div>
+                                                </button>
+                                                <div className="flex-1 h-px bg-[var(--border-default)]" />
                                             </div>
-                                        ) : (
-                                            /* List View */
-                                            <div className="space-y-1 ml-2">
-                                                {items.map((item, index) => {
-                                                    const isMissing = (item as any).isMissing;
-                                                    const isEditing = editingValueId === item.id;
 
-                                                    return (
-                                                        <div
-                                                            key={item.id}
-                                                            className={`grid grid-cols-12 px-4 py-3 rounded-xl items-center group transition-colors border ${isMissing
-                                                                ? 'bg-[var(--bg-surface)] border-dashed border-[var(--border-subtle)] hover:border-[var(--border-default)]'
-                                                                : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border-transparent hover:border-[var(--border-subtle)]'
-                                                                }`}
-                                                        >
-                                                            <div className="col-span-4 text-sm font-medium text-primary truncate pr-4 flex items-center gap-2" title={item.label}>
-                                                                {item.label}
-                                                                {isMissing && <span className="w-1.5 h-1.5 rounded-full bg-[var(--border-strong)]" title="Missing data"></span>}
+                                            {/* Column Headers for List View - Perfectly Aligned */}
+                                            {viewMode === 'list' && !isCollapsed ? (
+                                                <div className="flex-1 flex items-center min-w-0">
+                                                    <div className="flex-1 flex items-center min-w-0 pr-4">
+                                                        {yearsToShow.map(year => (
+                                                            <div key={year} className="flex-1 min-w-[80px] text-right text-[10px] font-bold uppercase tracking-wider text-tertiary">
+                                                                {year === 'current' ? 'Current' : year === 'previous' ? 'Previous' : year}
                                                             </div>
+                                                        ))}
 
-                                                            {isEditing ? (
-                                                                <>
-                                                                    <div className="col-span-2 flex justify-center px-1">
-                                                                        <input
-                                                                            className="w-full max-w-[120px] text-sm font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] shadow-sm"
-                                                                            value={editValues.current}
-                                                                            onChange={(e) => setEditValues({ ...editValues, current: e.target.value })}
-                                                                            onKeyDown={(e) => handleValueKeyDown(e, item)}
-                                                                            autoFocus
-                                                                            placeholder="Curr"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="col-span-2 flex justify-center px-1">
-                                                                        <input
-                                                                            className="w-full max-w-[120px] text-sm font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] shadow-sm"
-                                                                            value={editValues.previous}
-                                                                            onChange={(e) => setEditValues({ ...editValues, previous: e.target.value })}
-                                                                            onKeyDown={(e) => handleValueKeyDown(e, item)}
-                                                                            placeholder="Prev"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="col-span-2"></div>
-                                                                    <div className="col-span-2 flex items-center justify-end gap-2">
-                                                                        <button onClick={() => handleSaveValueEdit(item)} className="p-1.5 text-white bg-green-500 hover:bg-green-600 rounded-lg shadow-sm transition-colors" title="Save">
-                                                                            <Check className="w-4 h-4" />
-                                                                        </button>
-                                                                        <button onClick={() => setEditingValueId(null)} className="p-1.5 text-gray-500 hover:bg-red-100 hover:text-red-600 rounded-lg transition-colors" title="Cancel">
-                                                                            <X className="w-4 h-4" />
-                                                                        </button>
-                                                                    </div>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <div
-                                                                        className={`col-span-2 text-sm font-mono tabular-nums cursor-text hover:bg-[var(--bg-base)] rounded px-2 py-1 transition-colors text-center ${isMissing ? 'text-tertiary' : 'text-primary'}`}
-                                                                        onClick={() => handleStartEditValue(item)}
-                                                                    >
-                                                                        {isMissing && item.currentYear === 0 ? '—' : formatCurrency(item.currentYear)}
-                                                                    </div>
-                                                                    <div
-                                                                        className={`col-span-2 text-sm font-mono tabular-nums cursor-text hover:bg-[var(--bg-base)] rounded px-2 py-1 transition-colors text-center ${isMissing ? 'text-tertiary' : 'text-secondary'}`}
-                                                                        onClick={() => handleStartEditValue(item)}
-                                                                    >
-                                                                        {isMissing && item.previousYear === 0 ? '—' : formatCurrency(item.previousYear)}
-                                                                    </div>
+                                                        {/* Dynamic Variation Headers */}
+                                                        <div className="flex-1 min-w-[80px] text-right text-[10px] font-bold uppercase tracking-wider text-tertiary">Var (%)</div>
+                                                        {yearsToShow.length >= 3 && (
+                                                            <div className="flex-1 min-w-[80px] text-right text-[10px] font-bold uppercase tracking-wider text-tertiary">2Y Var</div>
+                                                        )}
+                                                        {yearsToShow.length >= 6 && (
+                                                            <div className="flex-1 min-w-[80px] text-right text-[10px] font-bold uppercase tracking-wider text-tertiary">5Y Var</div>
+                                                        )}
+                                                        {yearsToShow.length >= 11 && (
+                                                            <div className="flex-1 min-w-[80px] text-right text-[10px] font-bold uppercase tracking-wider text-tertiary">10Y Var</div>
+                                                        )}
+                                                        <div className="w-16 shrink-0"></div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                viewMode !== 'list' && (
+                                                    <div className="flex-1 h-px bg-[var(--border-default)]" />
+                                                )
+                                            )}
+                                        </div>
 
-                                                                    <div className="col-span-2 flex items-center gap-2 justify-center">
-                                                                        {!isMissing && (
-                                                                            <>
-                                                                                <span className={`text-sm font-medium ${(item.variation || 0) >= 0 ? 'text-success' : 'text-error'}`}>
-                                                                                    {(item.variation || 0) >= 0 ? '↗' : '↘'}
-                                                                                </span>
-                                                                                <span className={`pill text-xs ${(item.variation || 0) >= 0 ? 'pill-positive' : 'pill-negative'}`}>
-                                                                                    {(item.variationPercent || 0) > 0 ? '+' : ''}{(item.variationPercent || 0).toFixed(1)}%
-                                                                                </span>
-                                                                            </>
+                                        {/* Section Content */}
+                                        {!isCollapsed && (
+                                            viewMode === 'grid' ? (
+                                                /* Grid View */
+                                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 ml-2">
+                                                    {items.map((item, index) => {
+                                                        const isMissing = (item as any).isMissing;
+                                                        const isEditing = editingValueId === item.id;
+
+                                                        return (
+                                                            <div
+                                                                key={item.id}
+                                                                className={`group p-4 rounded-xl border transition-all relative overflow-hidden ${isMissing
+                                                                    ? 'bg-[var(--bg-surface)] border-[var(--border-subtle)] border-dashed hover:border-[var(--border-default)]'
+                                                                    : 'bg-[var(--bg-surface)] border-[var(--border-default)] hover:border-[var(--border-strong)]'
+                                                                    }`}
+                                                                style={{ animationDelay: `${index * 30}ms` }}
+                                                            >
+                                                                <div className="flex items-start justify-between mb-3">
+                                                                    <span className="text-xs truncate flex-1 pr-2 text-secondary font-medium" title={item.label}>
+                                                                        {item.label}
+                                                                    </span>
+                                                                    <button
+                                                                        className={`btn-icon w-6 h-6 transition-opacity ${isEditing ? 'opacity-100 text-[var(--accent-primary)]' : 'opacity-0 group-hover:opacity-100 text-tertiary hover:text-primary'}`}
+                                                                        onClick={() => !isEditing && handleStartEditValue(item)}
+                                                                    >
+                                                                        <Edit2 className="w-3 h-3" />
+                                                                    </button>
+                                                                </div>
+
+                                                                {isEditing ? (
+                                                                    <div className="space-y-2 mt-2 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
+                                                                        {yearsToShow.map(year => (
+                                                                            <div key={year}>
+                                                                                <label className="text-[10px] text-tertiary uppercase font-bold tracking-wider">
+                                                                                    {year === 'current' ? 'Current' : year === 'previous' ? 'Previous' : year}
+                                                                                </label>
+                                                                                <input
+                                                                                    className="w-full text-sm font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)] shadow-sm"
+                                                                                    value={editValues[year] || ''}
+                                                                                    onChange={(e) => setEditValues({ ...editValues, [year]: e.target.value })}
+                                                                                    onKeyDown={(e) => handleValueKeyDown(e, item)}
+                                                                                    placeholder="0.00"
+                                                                                />
+                                                                            </div>
+                                                                        ))}
+                                                                        <div className="flex justify-end gap-1 mt-2 sticky bottom-0 bg-[var(--bg-surface)] py-1">
+                                                                            <button onClick={() => handleSaveValueEdit(item)} className="p-1.5 text-success hover:bg-green-500/10 rounded-lg transition-colors shadow-sm"><Check className="w-3.5 h-3.5" /></button>
+                                                                            <button onClick={() => setEditingValueId(null)} className="p-1.5 text-error hover:bg-red-500/10 rounded-lg transition-colors shadow-sm"><X className="w-3.5 h-3.5" /></button>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div onClick={() => handleStartEditValue(item)} className="cursor-text mt-1 space-y-1.5">
+                                                                        {yearsToShow.slice(0, 3).map((year, idx) => {
+                                                                            const val = (year === 'current' ? item.currentYear :
+                                                                                year === 'previous' ? item.previousYear :
+                                                                                    item.allYears?.[year]) || 0;
+                                                                            return (
+                                                                                <div key={year} className="flex justify-between items-center">
+                                                                                    <span className={`text-[9px] uppercase font-bold tracking-tighter ${idx === 0 ? 'text-[var(--accent-primary)] opacity-80' : 'text-tertiary'}`}>
+                                                                                        {year === 'current' ? 'Current' : year === 'previous' ? 'Previous' : year}
+                                                                                    </span>
+                                                                                    <span className={`font-mono tabular-nums ${idx === 0 ? 'text-base font-bold text-primary' : 'text-[11px] text-secondary'}`}>
+                                                                                        {isMissing && val === 0 ? '—' : formatCurrency(val)}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        {yearsToShow.length > 3 && (
+                                                                            <div className="text-[9px] text-tertiary text-center bg-[var(--bg-base)] py-0.5 rounded border border-[var(--border-default)] border-dashed">
+                                                                                + {yearsToShow.length - 3} more years available
+                                                                            </div>
                                                                         )}
                                                                     </div>
+                                                                )}
 
-                                                                    <div className="col-span-2 flex items-center justify-end gap-1">
-                                                                        {!isMissing ? (
-                                                                            editingPageId === item.id ? (
-                                                                                <div className="flex items-center gap-1">
-                                                                                    <input
-                                                                                        type="text"
-                                                                                        value={editingPageValue}
-                                                                                        onChange={(e) => setEditingPageValue(e.target.value)}
-                                                                                        onKeyDown={(e) => handlePageKeyDown(e, item.id)}
-                                                                                        placeholder="#"
-                                                                                        className="w-12 px-1 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-base)] focus:outline-none"
-                                                                                        autoFocus
-                                                                                    />
-                                                                                    <button onClick={() => handleSavePageEdit(item.id)} className="text-success hover:bg-green-500/10 p-1 rounded"><Check className="w-3 h-3" /></button>
+                                                                {!isMissing && !isEditing && (
+                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 pt-2 border-t border-[var(--border-subtle)]">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <span className="text-[10px] text-tertiary uppercase font-bold">1Y:</span>
+                                                                            <span className={`text-xs font-bold ${(item.variation || 0) >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                {(item.variationPercent || 0) > 0 ? '+' : ''}{(item.variationPercent || 0).toFixed(1)}%
+                                                                            </span>
+                                                                        </div>
+                                                                        {yearsToShow.length >= 3 && (() => {
+                                                                            const idx2 = 2; // Year-2 usually
+                                                                            const current = (yearsToShow[0] === 'current' ? item.currentYear : item.allYears?.[yearsToShow[0]]) || 0;
+                                                                            const target = (yearsToShow[idx2] === 'current' ? item.currentYear : yearsToShow[idx2] === 'previous' ? item.previousYear : item.allYears?.[yearsToShow[idx2]]) || 0;
+                                                                            if (target === 0) return null;
+                                                                            const varP = ((current - target) / target) * 100;
+                                                                            return (
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <span className="text-[10px] text-tertiary uppercase font-bold">2Y:</span>
+                                                                                    <span className={`text-xs font-bold ${varP >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                        {varP > 0 ? '+' : ''}{varP.toFixed(1)}%
+                                                                                    </span>
                                                                                 </div>
-                                                                            ) : (
-                                                                                <button
-                                                                                    className="pill pill-neutral text-xs hover:bg-[var(--bg-elevated)] hover:text-primary transition-all ml-auto"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        item.sourcePage ? onSourceClick?.(item) : handleStartEditPage(item);
-                                                                                    }}
-                                                                                    title={item.rawLine ? `Source: ${item.rawLine}` : (item.sourcePage ? `Page ${item.sourcePage}` : 'Click to add page')}
-                                                                                >
-                                                                                    <FileText className="w-3 h-3" />
-                                                                                    {item.sourcePage || 'Page'}
-                                                                                </button>
-                                                                            )
-                                                                        ) : (
+                                                                            );
+                                                                        })()}
+                                                                        {yearsToShow.length >= 6 && (() => {
+                                                                            const idx5 = 5; // Year-5 
+                                                                            const current = (yearsToShow[0] === 'current' ? item.currentYear : item.allYears?.[yearsToShow[0]]) || 0;
+                                                                            const target = (yearsToShow[idx5] === 'current' ? item.currentYear : yearsToShow[idx5] === 'previous' ? item.previousYear : item.allYears?.[yearsToShow[idx5]]) || 0;
+                                                                            if (target === 0) return null;
+                                                                            const varP = ((current - target) / target) * 100;
+                                                                            return (
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <span className="text-[10px] text-tertiary uppercase font-bold">5Y:</span>
+                                                                                    <span className={`text-xs font-bold ${varP >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                        {varP > 0 ? '+' : ''}{varP.toFixed(1)}%
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                        <div className="flex-1"></div>
+                                                                        {item.sourcePage && (
                                                                             <button
-                                                                                onClick={() => handleStartEditValue(item)}
-                                                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent bg-accent/10 hover:bg-accent/20 rounded-lg transition-colors ml-auto"
+                                                                                className="text-[10px] text-tertiary hover:text-primary flex items-center gap-1 bg-[var(--bg-base)] px-1.5 py-0.5 rounded border border-transparent hover:border-[var(--border-default)] transition-all font-mono"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    onSourceClick?.(item);
+                                                                                }}
+                                                                                title={item.rawLine ? `Source: ${item.rawLine}` : `Page ${item.sourcePage}`}
                                                                             >
-                                                                                <Edit2 className="w-3.5 h-3.5" /> Add Value
+                                                                                <FileText className="w-2.5 h-2.5" />
+                                                                                {String(item.sourcePage).replace(/page/i, '').trim()}
                                                                             </button>
                                                                         )}
                                                                     </div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        )
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
+                                                                )}
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                /* List View */
+                                                <div className="space-y-1 ml-2">
+                                                    {items.map((item, index) => {
+                                                        const isMissing = (item as any).isMissing;
+                                                        const isEditing = editingValueId === item.id;
+
+                                                        return (
+                                                            <div
+                                                                key={item.id}
+                                                                className={`flex items-center gap-0 px-4 py-3 rounded-xl group transition-colors border ${isMissing
+                                                                    ? 'bg-[var(--bg-surface)] border-dashed border-[var(--border-subtle)] hover:border-[var(--border-default)]'
+                                                                    : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border-transparent hover:border-[var(--border-subtle)]'
+                                                                    }`}
+                                                            >
+                                                                <div className="w-[300px] text-sm font-medium text-primary truncate pr-4 flex items-center gap-2 shrink-0" title={item.label}>
+                                                                    <span className="truncate">{item.label}</span>
+                                                                    {isMissing && <span className="w-1.5 h-1.5 rounded-full bg-[var(--border-strong)]" title="Missing data"></span>}
+                                                                </div>
+
+                                                                <div className="flex-1 flex items-center pr-4">
+                                                                    {isEditing ? (
+                                                                        /* Edit Mode Layout matching Headers */
+                                                                        <>
+                                                                            {yearsToShow.map(year => (
+                                                                                <div key={year} className="flex-1 min-w-[80px] px-1 text-right">
+                                                                                    <input
+                                                                                        className="w-full text-right text-xs font-mono bg-[var(--bg-base)] border border-[var(--border-strong)] rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)] shadow-sm"
+                                                                                        value={editValues[year] || ''}
+                                                                                        onChange={(e) => setEditValues({ ...editValues, [year]: e.target.value })}
+                                                                                        onKeyDown={(e) => handleValueKeyDown(e, item)}
+                                                                                        placeholder="-"
+                                                                                    />
+                                                                                </div>
+                                                                            ))}
+                                                                            <div className="flex-1 min-w-[80px]"></div> {/* Var placeholder */}
+                                                                            {yearsToShow.length >= 3 && <div className="flex-1 min-w-[80px]"></div>}
+                                                                            {yearsToShow.length >= 6 && <div className="flex-1 min-w-[80px]"></div>}
+                                                                            {yearsToShow.length >= 11 && <div className="flex-1 min-w-[80px]"></div>}
+
+                                                                            <div className="w-16 flex items-center justify-end gap-1 shrink-0 ml-auto">
+                                                                                <button onClick={() => handleSaveValueEdit(item)} className="p-1 text-success hover:bg-green-500/10 rounded"><Check className="w-3.5 h-3.5" /></button>
+                                                                                <button onClick={() => setEditingValueId(null)} className="p-1 text-error hover:bg-red-500/10 rounded"><X className="w-3.5 h-3.5" /></button>
+                                                                            </div>
+                                                                        </>
+                                                                    ) : (
+                                                                        /* View Mode Layout matching Headers */
+                                                                        <>
+                                                                            {yearsToShow.map(year => {
+                                                                                const val = (year === 'current' ? item.currentYear :
+                                                                                    year === 'previous' ? item.previousYear :
+                                                                                        item.allYears?.[year]) || 0;
+                                                                                return (
+                                                                                    <div
+                                                                                        key={year}
+                                                                                        className={`flex-1 min-w-[80px] text-right text-sm font-mono tabular-nums cursor-text hover:bg-[var(--bg-elevated)] rounded px-2 py-1 transition-colors ${isMissing && val === 0 ? 'text-tertiary' : 'text-primary'}`}
+                                                                                        onClick={() => handleStartEditValue(item)}
+                                                                                    >
+                                                                                        {isMissing && val === 0 ? '—' : formatCurrency(val)}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+
+                                                                            <div className="flex-1 min-w-[80px] flex items-center justify-end">
+                                                                                {!isMissing && (
+                                                                                    <span className={`pill text-[10px] py-0 px-1.5 ${(item.variation || 0) >= 0 ? 'pill-positive' : 'pill-negative'}`}>
+                                                                                        {(item.variationPercent || 0) > 0 ? '+' : ''}{(item.variationPercent || 0).toFixed(1)}%
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+
+                                                                            {yearsToShow.length >= 3 && (
+                                                                                <div className="flex-1 min-w-[80px] flex items-center justify-end">
+                                                                                    {!isMissing && (() => {
+                                                                                        const target = (yearsToShow[2] === 'current' ? item.currentYear : yearsToShow[2] === 'previous' ? item.previousYear : item.allYears?.[yearsToShow[2]]) || 0;
+                                                                                        if (target === 0) return <span className="text-tertiary text-[10px]">—</span>;
+                                                                                        const current = (yearsToShow[0] === 'current' ? item.currentYear : item.allYears?.[yearsToShow[0]]) || 0;
+                                                                                        const varP = ((current - target) / target) * 100;
+                                                                                        return (
+                                                                                            <span className={`text-[10px] font-bold ${varP >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                                {varP > 0 ? '+' : ''}{varP.toFixed(1)}%
+                                                                                            </span>
+                                                                                        );
+                                                                                    })()}
+                                                                                </div>
+                                                                            )}
+                                                                            {yearsToShow.length >= 6 && (
+                                                                                <div className="flex-1 min-w-[80px] flex items-center justify-end">
+                                                                                    {!isMissing && (() => {
+                                                                                        const target = (yearsToShow[5] === 'current' ? item.currentYear : yearsToShow[5] === 'previous' ? item.previousYear : item.allYears?.[yearsToShow[5]]) || 0;
+                                                                                        if (target === 0) return <span className="text-tertiary text-[10px]">—</span>;
+                                                                                        const current = (yearsToShow[0] === 'current' ? item.currentYear : item.allYears?.[yearsToShow[0]]) || 0;
+                                                                                        const varP = ((current - target) / target) * 100;
+                                                                                        return (
+                                                                                            <span className={`text-[10px] font-bold ${varP >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                                {varP > 0 ? '+' : ''}{varP.toFixed(1)}%
+                                                                                            </span>
+                                                                                        );
+                                                                                    })()}
+                                                                                </div>
+                                                                            )}
+                                                                            {yearsToShow.length >= 11 && (
+                                                                                <div className="flex-1 min-w-[80px] flex items-center justify-end">
+                                                                                    {!isMissing && (() => {
+                                                                                        const target = (yearsToShow[10] === 'current' ? item.currentYear : yearsToShow[10] === 'previous' ? item.previousYear : item.allYears?.[yearsToShow[10]]) || 0;
+                                                                                        if (target === 0) return <span className="text-tertiary text-[10px]">—</span>;
+                                                                                        const current = (yearsToShow[0] === 'current' ? item.currentYear : item.allYears?.[yearsToShow[0]]) || 0;
+                                                                                        const varP = ((current - target) / target) * 100;
+                                                                                        return (
+                                                                                            <span className={`text-[10px] font-bold ${varP >= 0 ? 'text-success' : 'text-error'}`}>
+                                                                                                {varP > 0 ? '+' : ''}{varP.toFixed(1)}%
+                                                                                            </span>
+                                                                                        );
+                                                                                    })()}
+                                                                                </div>
+                                                                            )}
+
+                                                                            <div className="w-16 flex items-center justify-end gap-1 shrink-0 ml-auto">
+                                                                                {!isMissing ? (
+                                                                                    editingPageId === item.id ? (
+                                                                                        <div className="flex items-center gap-1">
+                                                                                            <input
+                                                                                                type="text"
+                                                                                                value={editingPageValue}
+                                                                                                onChange={(e) => setEditingPageValue(e.target.value)}
+                                                                                                onKeyDown={(e) => handlePageKeyDown(e, item.id)}
+                                                                                                placeholder="#"
+                                                                                                className="w-12 px-1 py-1 text-xs rounded border border-[var(--border-strong)] bg-[var(--bg-base)] focus:outline-none"
+                                                                                                autoFocus
+                                                                                            />
+                                                                                            <button onClick={() => handleSavePageEdit(item.id)} className="text-success hover:bg-green-500/10 p-1 rounded"><Check className="w-3 h-3" /></button>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <button
+                                                                                            onClick={(e) => { e.stopPropagation(); handleStartEditPage(item); }}
+                                                                                            className="px-2 py-0.5 text-xs text-tertiary hover:text-primary hover:bg-[var(--bg-base)] rounded transition-colors"
+                                                                                            title="Edit page number"
+                                                                                        >
+                                                                                            {item.sourcePage || '#'}
+                                                                                        </button>
+                                                                                    )
+                                                                                ) : <span className="text-tertiary text-xs">-</span>}
+                                                                                {item.sourcePage && !isMissing && (
+                                                                                    <button
+                                                                                        className="text-tertiary hover:text-primary flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--bg-base)] transition-colors text-[10px] font-mono"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            onSourceClick?.(item);
+                                                                                        }}
+                                                                                        title="View Source"
+                                                                                    >
+                                                                                        <FileText className="w-3 h-3" />
+                                                                                        {String(item.sourcePage).replace(/page/i, '').trim()}
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )
                 )}
             </div>
         </div>
     );
 };
+
+const RawDbView: React.FC = () => {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [activeTable, setActiveTable] = useState<'financial_items' | 'documents' | 'scraper_data' | 'extraction_checklist'>('financial_items');
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await getDbData();
+            if (result.status === 'success') {
+                setData(result.data);
+            } else {
+                setError(result.message || 'Failed to fetch DB data');
+            }
+        } catch (err) {
+            setError(String(err));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Fetch on mount
+    React.useEffect(() => {
+        fetchData();
+    }, []);
+
+    const renderTableContent = () => {
+        if (!data || !data[activeTable]) return <div className="text-tertiary text-sm p-4">No data</div>;
+
+        const rows = data[activeTable];
+        if (!Array.isArray(rows) || rows.length === 0) return <div className="text-tertiary text-sm p-4">Empty table</div>;
+
+        // Simple JSON dump for now, or a basic table
+        // Let's do a basic JSON tree for each item
+        return (
+            <div className="space-y-4">
+                {rows.map((row: any, i: number) => (
+                    <div key={i} className="bg-[var(--bg-base)] p-3 rounded-lg border border-[var(--border-subtle)] font-mono text-xs overflow-x-auto">
+                        <pre className="whitespace-pre-wrap text-secondary">
+                            {JSON.stringify(row, null, 2)}
+                        </pre>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    return (
+        <div className="flex flex-col h-full animate-fadeIn">
+            <div className="flex items-center justify-between mb-4 px-2">
+                <div className="flex gap-2">
+                    {(['financial_items', 'documents', 'scraper_data', 'extraction_checklist'] as const).map(table => (
+                        <button
+                            key={table}
+                            onClick={() => setActiveTable(table)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${activeTable === table
+                                ? 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/30'
+                                : 'bg-[var(--bg-elevated)] text-tertiary hover:text-secondary'
+                                }`}
+                        >
+                            {table.replace('_', ' ')}
+                        </button>
+                    ))}
+                </div>
+                <button
+                    onClick={fetchData}
+                    disabled={loading}
+                    className="p-2 text-tertiary hover:text-primary transition-colors disabled:opacity-50"
+                >
+                    <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+            </div>
+
+            {error && (
+                <div className="mx-2 mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-error text-xs">
+                    {error}
+                </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-2">
+                {loading ? (
+                    <div className="flex justify-center p-8">
+                        <RefreshCw className="w-6 h-6 animate-spin text-tertiary" />
+                    </div>
+                ) : (
+                    renderTableContent()
+                )}
+            </div>
+        </div>
+    );
+};
+
 
 export default CapturedDataGrid;

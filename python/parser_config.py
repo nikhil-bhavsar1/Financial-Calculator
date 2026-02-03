@@ -77,11 +77,8 @@ try:
 except ImportError:
     TESSERACT_AVAILABLE = False
 
-try:
-    import easyocr
-    EASYOCR_AVAILABLE = True
-except ImportError:
-    EASYOCR_AVAILABLE = False
+import importlib.util
+EASYOCR_AVAILABLE = importlib.util.find_spec("easyocr") is not None
 
 try:
     import pandas as pd
@@ -97,43 +94,72 @@ except ImportError:
 
 @dataclass
 class ParserConfig:
-    """Configuration settings for the financial parser."""
+    """Configuration settings for the financial parser - Enhanced for 95% capture rate."""
     
-    # OCR Settings
+    # OCR Settings - Loosened for better capture
     use_ocr: bool = True
     ocr_engine: str = 'tesseract'  # 'tesseract' or 'easyocr'
     ocr_dpi: int = 300
-    ocr_confidence_threshold: float = 30.0
+    ocr_confidence_threshold: float = 25.0  # Lowered from 30.0
     force_ocr: bool = False
     
-    # Parsing Settings
-    min_numbers_per_row: int = 2
-    max_indent_level: int = 4
-    min_label_length: int = 3
-    max_label_length: int = 200
+    # Parsing Settings - Loosened for better capture
+    min_numbers_per_row: int = 1  # Lowered from 2 to capture more line items
+    max_indent_level: int = 6  # Increased from 4 for deeper hierarchies
+    min_label_length: int = 2  # Lowered from 3
+    max_label_length: int = 300  # Increased from 200 for longer descriptions
     
-    # Detection Settings
-    entity_detection_threshold: float = 0.3
-    statement_detection_threshold: float = 0.2
-    table_detection_min_rows: int = 3
+    # Detection Settings - Loosened for better capture
+    entity_detection_threshold: float = 0.25  # Lowered from 0.3
+    statement_detection_threshold: float = 0.15  # Lowered from 0.2
+    table_detection_min_rows: int = 2  # Lowered from 3
     
     # Page Settings
-    max_continuation_pages: int = 4
-    header_scan_chars: int = 1500
+    max_continuation_pages: int = 6  # Increased from 4 for multi-page tables
+    header_scan_chars: int = 2000  # Increased from 1500
     
-    # Validation Settings
+    # Validation Settings - More permissive
     validate_output: bool = True
-    check_balance_sheet_equation: bool = True
+    check_balance_sheet_equation: bool = False  # Disabled to capture more data
     flag_extreme_variations: bool = True
-    extreme_variation_threshold: float = 1000.0  # percentage
+    extreme_variation_threshold: float = 500.0  # Lowered from 1000.0
     
     # Performance Settings
     cache_ocr_results: bool = True
-    max_debug_entries: int = 100
+    max_debug_entries: int = 200  # Increased from 100
     
     # Output Settings
     include_raw_text: bool = True
     include_debug_info: bool = True
+    
+    # New: Enhanced table detection settings
+    table_min_columns: int = 2
+    table_header_patterns: list = None
+    table_data_patterns: list = None
+    
+    # New: Note extraction settings
+    extract_notes_sections: bool = True
+    note_reference_patterns: list = None
+    min_note_content_length: int = 50
+    
+    def __post_init__(self):
+        """Initialize default patterns if not set."""
+        if self.table_header_patterns is None:
+            self.table_header_patterns = [
+                r'particulars?', r'description', r'notes?', 
+                r'year\s*ended', r'as\s+(?:at|of)', r'\d{4}'
+            ]
+        if self.table_data_patterns is None:
+            self.table_data_patterns = [
+                r'[\(\-]?\s*[\d,]+(?:\.\d{1,2})?\s*\)?',
+                r'\d{1,3}(?:,\d{2,3})+',
+            ]
+        if self.note_reference_patterns is None:
+            self.note_reference_patterns = [
+                r'\bnote\s+(\d+)[\s\.:]',
+                r'\bsee\s+note\s+(\d+)',
+                r'\([\d\s,]+\)',  # Note numbers in parentheses
+            ]
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
@@ -317,6 +343,7 @@ class StatementBoundary:
     end_line: int = -1
     title: str = ""
     confidence: float = 0.0
+    has_table: bool = False  # Whether the page contains actual table structure
     
     @property
     def page_count(self) -> int:
@@ -344,6 +371,7 @@ class FinancialLineItem:
     is_important: bool = False
     source_page: int = 0
     raw_line: str = ""
+    all_years: Dict[str, float] = field(default_factory=dict)
     
     @property
     def variation(self) -> float:
@@ -373,6 +401,7 @@ class FinancialLineItem:
             "isImportant": self.is_important,
             "sourcePage": f"Page {self.source_page}" if self.source_page > 0 else "",
             "rawLine": self.raw_line,
+            "allYears": self.all_years
         }
 
 

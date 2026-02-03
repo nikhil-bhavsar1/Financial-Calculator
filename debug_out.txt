@@ -1,0 +1,363 @@
+
+
+<!DOCTYPE html>
+
+
+
+
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1" /><meta name="viewport" content="width=device-width; initial-scale=1.0; maximum-scale=1.0; user-scalable=0;" /><meta name="apple-mobile-web-app-capable" content="yes" /><meta name="HandheldFriendly" content="true" /><meta name="MobileOptimized" content="width" /><meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7, IE=EmulateIE8, IE=EmulateIE9, IE=EmulateIE10, IE=EmulateIE11 " /><title>
+	Error Code: No:46
+</title><meta name="description" content="BSE Members Help desk BSE-Members Portal BSE (formerly Bombay Stock Exchange).Iliquid_Securities Graded Surveillance Measure BSE Ltd.SEBI Debarred Entities BSE - Settlement Calendar BSE Collateral Format BSE- Downloads Graded Surveillance Measure Additional Surveillance Measure (ASM) BSE Risk Management BSE Risk Management BSE-Client Funding Data BSE Members Help desk BSE-Members Portal BSE (formerly Bombay Stock Exchange).Iliquid_Securities BSE Ltd.SEBI Debarred Entities BSE - Settlement Calendar BSE Collateral Format BSE- Downloads" /><meta name="keywords" content="Members Help desk Members Portal Illiquid Securities Graded Surveillance Measure SEBI Debarred Entities Settlement Calendar Collateral Format  Graded Surveillance MeasureNew Additional Surveillance Measures Risk Management Technology Members Disclosures Members Help desk Members Portals Illiquid Securities Advance Price Band (APB) New SEBI Debarred Entities Settlement Calendar Collateral format Downloads Downloading of Equity Settlement related reports" /><meta name="description" content="Make an informed decision, know more about your broker participant before selecting them as your service provider through Know your broker" />    
+      <script>
+          var a = new Date();
+          var mon = a.getMonth();
+          mon = mon + 1;
+          var time = a.getDate() + "" + mon + "" + a.getFullYear() + "" + a.getHours() + "" + a.getMinutes();
+          document.write("<script type='text/javascript' src='/version.js?v=" + time + "'><\/script>");
+      </script>
+	<link href="/include/css/bootstrap.css?v=1" type="text/css" rel="stylesheet" /><link href="/include/css/style.css" type="text/css" rel="stylesheet" /><link href="/include/css/font-awesome.css" type="text/css" rel="stylesheet" />
+   
+    <script src="/include/js/jquerylatest.js" type="text/javascript"></script>
+    <script type="text/javascript" src="https://www.bseindia.com/include/js/google_mid.js"></script>
+    <script src="/include/js/jqueryuilatest.js"></script>
+    <link href="/include/css/jquery-ui-Latest.min.css" rel="stylesheet" />
+    <script src="/include/js/smartNewSearchPrimary.js" type="text/javascript"></script>
+    <script src="/include/js/Eqautocomplete_sv1.js"></script>
+
+     
+    
+    <script>
+        //$(document).ready(function () {
+        window.onload = function () {
+            $('a[href*="bseindia"]').each(function () {
+                var oldUrl = $(this).attr("href"); // Get current url
+                var newUrl = oldUrl.replace("http://www.bseindia.com", "").replace("https://www.bseindia.com", "").replace("www.bseindia.com", ""); // Create new url
+                $(this).attr("href", newUrl); // Set herf value
+            });
+        }//);
+    </script>
+</head>
+<body ng-app="topHeader">
+    <form method="post" action="./showinterest.aspx?SearchVal=triveni" id="form1">
+<div class="aspNetHidden">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="PIXKlsW+quTctMjB/J4OWk8+CGoZM7VM0gDm3Aeh/+UCV2TzoztsmjjzMZW7QDyfx2zvEsP0llVVpXD1T6hAr7YW4CEWeElN/gJ/2+LSxa6kTKGPNmR2N3Ic1zpxxm7ZbG2ysssQLsfLV5ZchK07Ew==" />
+</div>
+
+<div class="aspNetHidden">
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="49173B21" />
+	<input type="hidden" name="__VIEWSTATEENCRYPTED" id="__VIEWSTATEENCRYPTED" value="" />
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="sdB6nWtjQ+/kVrMpoR/PDjW3VZA64Ku43OsWEqeMUSc/D4tD/HL2vTo1s9xlr1rEUsfPdK0D/wEnhazXfgKYznQGGzlPc5ed3DtOPR/HEewcGvLpshZXxZOjL52hi0m/EiAoDuzDvABQQ3Jlb0K77+9R5aZa0fNYnhIgH/vP8OyBKXQoIEFY8KtNK8odwkBfeId8tmV9v+4+sG88WZQiXCLBbSDZWm0VVihKcY4kuFFktvRk039KTR9+S5VUnZkOafXk8PuXFwFIx1z29G9oJJV6jHbGO/PvVMHfXnqEfWLPcm4o246GMPNaTp2wU92Ze8e4ugQRIV3KMRl789aLOzEoozvewQ0wbVnKbGDpat7OoAW0UtW7Jf+vvznh6VmyG+kp8N/Gtjru8WPlmIKcgiBkpCHJSm5OcWb0Z7UmOW5mmVEMEXG8oUe1HKC559I5ReeNODb1tzE/YNOFXY6rsBPdl6uHrufPEf207dEHP37Gy5qNEeWS3O5JXW+99Qgpvi1vGQIIwlebVnr+MC5BtNmcrD2JHLeII5iiBVuh6/Oizmr9k1/7+tkmBoPm6Wc0PxbT2NiMX2exK7mgGlfwOYamEUXyNv5amt/XFy3FAIS0UapqRnwsYpC4N+4ORz7Z" />
+</div>
+        
+        
+        
+
+<script src="/D90/Angular/angular.latest.js"></script>
+<script src="/D90/Angular/angular-sanitize.latest.js"></script>
+<link href="https://bnotification.bseindia.com/" rel="preconnect">
+<script src="https://bnotification.bseindia.com/socket.io/socket.io.js"></script>
+<script>
+    var a = new Date();
+    var mon = a.getMonth();
+    var mint = 30;
+    mon = mon + 1;
+    if (a.getMinutes() % 30 == 0) {
+        mint = a.getMinutes();
+    }
+    var time = a.getDate() + "" + mon + "" + a.getFullYear() + "" + a.getHours() + "" + mint;
+    document.write("<script type='text/javascript' src='/version.js?v=" + time + "'><\/script>");
+</script>
+<script>
+    document.write("<script type='text/javascript' src='/D90/Controller/AppnewController.js?v=" + version_cntroller + "'><\/script>");
+    document.write("<script type='text/javascript' src='/D90/Controller/factoryother.js?v=" + version_cntroller + "'><\/script>");
+    document.write("<script type='text/javascript' src='/D90/Controller/Headernew_streamController.js?v=" + version_cntroller + "'><\/script>");
+</script>
+ 
+<div ng-controller="topController">
+    <div id="topDiv"  ng-include="'/D90/Header/top_new.html'">
+
+    </div>
+
+        <div id="Divhomemenu" ng-include="'/D90/Header/members_menu.html'">
+        </div>
+
+</div>
+
+        <div style="margin-top: 10px;">
+
+            <div id="fontSize"> <div id="divmain" class="body slide">
+                
+
+
+
+
+    
+
+    <script async='async' src='https://www.googletagservices.com/tag/js/gpt.js'></script>
+<script>
+    var googletag = googletag || {};
+    googletag.cmd = googletag.cmd || [];
+</script>
+
+<script>
+    googletag.cmd.push(function () {
+        googletag.defineSlot('/35735749/About_Second', [[970, 90], [234, 60], [728, 90]], 'div-gpt-ad-1554962426265-0').addService(googletag.pubads());
+        googletag.pubads().enableSingleRequest();
+        googletag.enableServices();
+    });
+</script>
+
+    <br />
+
+    <div align="center" class="googlead largetable">
+<!-- /35735749/About_Second -->
+<div id='div-gpt-ad-1554962426265-0'>
+<script>
+    googletag.cmd.push(function () { googletag.display('div-gpt-ad-1554962426265-0'); });
+</script>
+</div>
+</div>
+	<script> 
+        $(document).ready(function () {
+            
+			$("#ContentPlaceHolder1_btnSubmit").click(function (e) {
+                validatedata(e);
+            });
+            $("#ContentPlaceHolder1_txtcontact").keypress(function (e) {
+                var key = event.keyCode;
+                // Only allow numbers to be entered
+                if (key < 48 || key > 57) {
+                    event.preventDefault();
+                }
+            });
+		});
+        function validatedata(e) {
+            var Name;
+
+            txtName = document.getElementById("ContentPlaceHolder1_txtname");
+            var txtEmail = document.getElementById("ContentPlaceHolder1_txtemail");
+            var txtMobNo = document.getElementById("ContentPlaceHolder1_txtcontact");
+            var txtcomment = document.getElementById("ContentPlaceHolder1_txtcomment");
+
+
+            var phoneno = /^[6-9]{1}[0-9]{9}$/; // /^\d{10}$/;
+            var input = /^[A-Za-z0-9 ]+$/;
+            if (txtName.value == "") {
+                alert('Please Enter Name');
+                txtName.focus();
+                e.preventDefault(); }
+            else {
+                if (txtEmail.value == "") {
+                    alert('Please Enter Email ID');
+                    txtEmail.focus();
+                    e.preventDefault();
+                }
+                else {
+                    var flag = ValidateEmail();
+                    if (flag == true) {
+
+                        if (txtMobNo.value == "") {
+                            alert('Please Enter Mobile Number');
+                            txtMobNo.focus();
+                            e.preventDefault();
+                        }
+                        //else if (!(txtMobNo.value.match(phoneno))) {
+                        //else if (txtMobNo.value.length != 10) {
+                        else {
+                            if (!(txtMobNo.value.match(phoneno))) {
+                                alert("Please enter valid mobile number.");
+                                txtMobNo.focus();
+                                e.preventDefault();
+                            }
+                            else {
+                                if (txtcomment.value == "") {
+                                    alert('Please Enter Comment ');
+                                    txtcomment.focus();
+                                    e.preventDefault();
+                                }
+                                else {
+                                    if (!(txtcomment.value.match(input))) {
+                                        alert("Please enter valid comment");
+                                        txtcomment.focus();
+                                        e.preventDefault();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        function valid_numbers(e) {
+            var key = e.which || e.KeyCode;
+            if (key >= 48 && key <= 57)
+                // to check whether pressed key is number or not 
+                return true;
+            else return false;
+        }
+                function ValidateEmail() {
+
+                    var txtEmail = document.getElementById("ContentPlaceHolder1_txtemail");
+                    var mailformat = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+                    if (txtEmail.value.match(mailformat)) {
+                        // var email = "johndoe@yahoo.com";
+                        // alert(txtEmail.value);
+                        var name = txtEmail.value.substring(0, txtEmail.value.lastIndexOf("@"));
+                        var domain = txtEmail.value.substring(txtEmail.value.lastIndexOf("@") + 1);
+
+                        var ext = domain.split('.');
+
+                        if (ext[1].toLowerCase() == "com" || ext[1].toLowerCase() == "org" || ext[1].toLowerCase() == "in" || ext[1].toLowerCase() == "co" || ext[1].toLowerCase() == "net" || ext[1].toLowerCase() == "ngo") {
+                            //alert("Valid email address!");
+                            txtEmail.focus();
+                            return true;
+                        }
+                        else {
+                            alert("Invalid email address!");
+                            e.preventDefault();
+                        }
+                    }
+                    else {
+                        alert("You have entered an invalid email address!");
+                        txtEmail.focus();
+                        e.preventDefault();
+                    }
+                    
+                }
+    </script>
+
+<div class="whitebox">
+        <div class="container-fluid marketstartarea">
+          
+          
+            <div class="row">
+                <div class="col-lg-12">
+                    <div class=" blueheading" style="text-align: left">
+                        <div class="home_widget">
+                            <span class="page_info_title_s2">Show Interest</span> 
+
+                        </div>
+                    </div>
+                </div>
+                
+               
+            </div>  </div>
+        </div>
+        
+        
+    <div class="whitebox">
+            <div class="container-fluid marketstartarea">
+
+   <div class="col-lg-12">
+
+<div class="row">
+            <div class="col-lg-1"><b>Name</b></div>
+	                
+            <div class="col-lg-2"><input name="ctl00$ContentPlaceHolder1$txtname" type="text" id="ContentPlaceHolder1_txtname" class="form-control" role="TextBox" name="name1" autocomplete="off" />
+   </div>
+            <div class="col-lg-1"><b>Email</b></div>
+            <div class="col-lg-2"><input name="ctl00$ContentPlaceHolder1$txtemail" type="text" id="ContentPlaceHolder1_txtemail" class="form-control" role="TextBox" name="name1" autocomplete="off" /></div>
+            <div class="col-lg-1"><b>Contact No.</b></div>
+            <div class="col-lg-2"><input name="ctl00$ContentPlaceHolder1$txtcontact" type="text" maxlength="10" id="ContentPlaceHolder1_txtcontact" class="form-control" role="TextBox" name="name1" autocomplete="off" /></div>
+            <div class="col-lg-3"></div>
+</div><br />
+<div class="row">
+            <div class="col-lg-1"><b>Category Name</b></div>
+            <div class="col-lg-2">
+				<select name="ctl00$ContentPlaceHolder1$ddlcat" id="ContentPlaceHolder1_ddlcat" role="DropDownList" name="option" class="form-control">
+	<option value="ALL">ALL</option>
+	<option value="Circulars Listed Companies">Circulars Listed Companies</option>
+	<option value="Company related">Company related</option>
+	<option value="Compliance">Compliance</option>
+	<option value="Corporate Actions">Corporate Actions</option>
+	<option value="Index">Index</option>
+	<option value="Others">Others</option>
+	<option value="Settlement/RMS">Settlement/RMS</option>
+	<option value="Tenders">Tenders</option>
+	<option value="Trading">Trading</option>
+
+</select>
+				</div>
+            <div class="col-lg-1"><b>Sub Category</b></div>
+            <div class="col-lg-2">
+				<select name="ctl00$ContentPlaceHolder1$ddl_subcat" id="ContentPlaceHolder1_ddl_subcat" role="DropDownList" name="option" class="form-control">
+	<option value="ALL">ALL</option>
+	<option value="Bad Delivery Cell">Bad Delivery Cell</option>
+	<option value="BSE Training Institute">BSE Training Institute</option>
+	<option value="BTI">BTI</option>
+	<option value="Business Development">Business Development</option>
+	<option value="Business Operations">Business Operations</option>
+	<option value="Clearing &amp; Settlement">Clearing &amp; Settlement</option>
+	<option value="Corporate Communications">Corporate Communications</option>
+	<option value="Trading">Trading</option>
+
+</select></div>
+				
+            <div class="col-lg-1"><b>Your comments</b></div>
+            <div class="col-lg-2"><input name="ctl00$ContentPlaceHolder1$txtcomment" type="text" id="ContentPlaceHolder1_txtcomment" class="form-control" role="TextBox" name="name1" autocomplete="off" /></div>
+            <div class="col-lg-3"></div>
+</div><br />
+
+<div class="row">
+
+<div class="col-lg-12" align="center"><input type="submit" name="ctl00$ContentPlaceHolder1$btnSubmit" value="Submit" id="ContentPlaceHolder1_btnSubmit" role="Button" name="Submit" class="btn btn-default" />
+              
+
+
+</div>	   
+	   
+</div>
+
+
+
+</div>
+
+
+</div>
+
+
+
+
+<br /><br />
+
+<div align="center" class="googlead largetable">
+<!-- /35735749/About_Second -->
+<div id='div-gpt-ad-1554962426265-0'>
+<script>
+    googletag.cmd.push(function () { googletag.display('div-gpt-ad-1554962426265-0'); });
+</script>
+</div>
+</div>
+
+
+
+
+            </div></div>
+        </div>
+        <br />
+        <br />
+        <div class="middlefoot"></div>
+        <footer id="footerarea" class="footerarea">
+        </footer>
+        <script>$("#footerarea").load("/footer.aspx");</script>
+
+        <script src="/include/js/jquery.ui.touch-punch.min.js"></script>
+       <script>
+           document.write("<script type='text/javascript' src='/include/js/bootstrap.min.js?v=" + version_cntroller + "'><\/script>");
+
+       </script>
+        <script src="/include/js/jquery.bootstrap-responsive-tabs.min.js"></script>
+        <script>
+            $('.responsive-tabs').responsiveTabs({
+                accordionOn: ['xs', 'sm']
+            });
+        </script>
+    </form>
+</body>
+</html>
+

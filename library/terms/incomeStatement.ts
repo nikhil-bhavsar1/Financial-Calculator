@@ -658,5 +658,179 @@ export const INCOME_STATEMENT_TERMS: TermMapping[] = [
             gaap: ['ASC 420'],
             ifrs: ['IAS 37']
         }
+    },
+    {
+        id: 'revenue_from_operations',
+        category: 'Income Statement',
+        key: 'revenue_from_operations',
+        label: 'Revenue from Operations',
+        keywords_indas: [
+            'revenue from operations', 'revenue from operations net of excise duty',
+            'sale of products', 'sale of goods', 'income from services',
+            'operating revenue', 'net sales', 'turnover', 'sales revenue'
+        ],
+        keywords_gaap: [
+            'revenue', 'sales', 'net sales',
+            'sales revenue', 'total revenue'
+        ],
+        keywords_ifrs: [
+            'revenue from contracts with customers', 'revenue'
+        ],
+        related_standards: {
+            indas: ['IndAS 18', 'IndAS 115'],
+            gaap: ['ASC 606'],
+            ifrs: ['IFRS 15']
+        }
+    },
+    {
+        id: 'other_income',
+        category: 'Income Statement',
+        key: 'other_income',
+        label: 'Other Income',
+        keywords_indas: [
+            'other income', 'non-operating income', 'miscellaneous income',
+            'interest income', 'dividend income', 'foreign exchange gain',
+            'profit on sale of assets', 'income from investments'
+        ],
+        keywords_gaap: [
+            'other income', 'non-operating income', 'interest income', 'dividend income'
+        ],
+        keywords_ifrs: [
+            'other income', 'non-operating income'
+        ],
+        related_standards: {
+            indas: ['IndAS 115'],
+            gaap: ['ASC 225'],
+            ifrs: ['IFRS 15']
+        }
+    },
+    {
+        id: 'expected_credit_loss',
+        category: 'Income Statement',
+        key: 'expected_credit_loss',
+        label: 'Expected Credit Loss (ECL)',
+        keywords_indas: [
+            'expected credit loss', 'ecl provision', 'credit loss provision',
+            'provision for expected credit losses', 'credit impairment',
+            'allowance for credit losses'
+        ],
+        keywords_gaap: [
+            'allowance for credit losses', 'credit loss allowance',
+            'provision for credit losses'
+        ],
+        keywords_ifrs: [
+            'expected credit loss allowance', 'impairment allowance',
+            'provision for impairment of receivables'
+        ],
+        related_standards: {
+            indas: ['IndAS 109'],
+            gaap: ['ASC 326'],
+            ifrs: ['IFRS 9']
+        }
+    },
+    {
+        id: 'borrowing_costs_capitalized',
+        category: 'Income Statement',
+        key: 'borrowing_costs_capitalized',
+        label: 'Borrowing Costs Capitalized',
+        keywords_indas: [
+            'borrowing costs capitalized', 'interest capitalized',
+            'capitalized borrowing costs', 'finance cost capitalized'
+        ],
+        keywords_gaap: [
+            'capitalized interest', 'interest expense capitalized'
+        ],
+        keywords_ifrs: [
+            'borrowing costs capitalized', 'capitalized borrowing costs'
+        ],
+        related_standards: {
+            indas: ['IndAS 23'],
+            gaap: ['ASC 835'],
+            ifrs: ['IAS 23']
+        }
+    },
+    {
+        id: 'mat_credit_entitlement',
+        category: 'Income Statement',
+        key: 'mat_credit_entitlement',
+        label: 'MAT Credit Entitlement',
+        keywords_indas: [
+            'mat credit entitlement', 'minimum alternate tax credit',
+            'mat credit', 'mat set off', 'mat asset'
+        ],
+        keywords_gaap: [],
+        keywords_ifrs: [],
+        related_standards: {
+            indas: ['IndAS 12']
+        }
+    },
+    {
+        id: 'impairment_loss',
+        category: 'Income Statement',
+        key: 'impairment_loss',
+        label: 'Impairment Loss',
+        keywords_indas: [
+            'impairment loss', 'impairment of assets', 'provision for impairment',
+            'impairment provision', 'asset impairment', 'write down of assets'
+        ],
+        keywords_gaap: [
+            'impairment loss', 'impairment charge', 'asset impairment', 'write-down'
+        ],
+        keywords_ifrs: [
+            'impairment loss', 'impairment of assets'
+        ],
+        related_standards: {
+            indas: ['IndAS 36'],
+            gaap: ['ASC 360'],
+            ifrs: ['IAS 36']
+        }
+    },
+    {
+        id: 'other_comprehensive_income',
+        category: 'Other Comprehensive Income',
+        key: 'other_comprehensive_income',
+        label: 'Other Comprehensive Income',
+        keywords_indas: [
+            'other comprehensive income', 'oci', 'items that will be reclassified',
+            'items that will not be reclassified', 'cash flow hedge reserve',
+            'foreign currency translation reserve', 'fvtoci reserve',
+            'remeasurement of defined benefit plans'
+        ],
+        keywords_gaap: [
+            'accumulated other comprehensive income', 'oci',
+            'other comprehensive income loss', 'foreign currency translation adjustment',
+            'unrealized gains losses on securities'
+        ],
+        keywords_ifrs: [
+            'other comprehensive income', 'oci reserve',
+            'accumulated other comprehensive income', 'translation reserve'
+        ],
+        related_standards: {
+            indas: ['IndAS 1'],
+            gaap: ['ASC 220'],
+            ifrs: ['IAS 1']
+        }
+    },
+    {
+        id: 'total_comprehensive_income',
+        category: 'Other Comprehensive Income',
+        key: 'total_comprehensive_income',
+        label: 'Total Comprehensive Income',
+        keywords_indas: [
+            'total comprehensive income', 'comprehensive income for the year',
+            'profit for the year and other comprehensive income',
+            'statement of comprehensive income'
+        ],
+        keywords_gaap: [
+            'total comprehensive income', 'comprehensive income'
+        ],
+        keywords_ifrs: [
+            'total comprehensive income', 'statement of comprehensive income'
+        ],
+        related_standards: {
+            indas: ['IndAS 1'],
+            gaap: ['ASC 220'],
+            ifrs: ['IAS 1']
+        }
     }
 ];
